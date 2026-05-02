@@ -1,0 +1,37 @@
+# Copyright © Jean Silva
+#
+# This file is part of the Key6 open-source project.
+#
+# Key6 is free software: you can redistribute it and/or modify it under the
+# terms of the GNU General Public License as published by the Free Software
+# Foundation, either version 3 of the License, or (at your option) any later
+# version.
+#
+# Key6 is distributed in the hope that it will be useful, but WITHOUT ANY
+# WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+# FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
+# details.
+#
+# You should have received a copy of the GNU General Public License along with
+# this program. If not, see https://www.gnu.org/licenses.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+ij_any_keep_blank_lines_in_code = 1
+ij_continuation_indent_size = 2
+ij_visual_guides = 80
+indent_size = 2
+indent_style = space
+insert_final_newline = true
+max_line_length = 80
+trim_trailing_whitespace = true
+
+[*.xml]
+ij_xml_attribute_wrap = on_every_item
+ij_xml_keep_line_breaks = false
+ij_xml_keep_whitespaces = false
+ij_xml_space_inside_empty_tag = true
+ij_xml_text_wrap = normal
