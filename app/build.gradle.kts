@@ -58,5 +58,5 @@ dependencies {
   implementation(libs.android.appcompat)
   implementation(libs.android.core)
   implementation(libs.material)
-  testImplementation(libs.junit)
+  testImplementation(libs.jUnit)
 }

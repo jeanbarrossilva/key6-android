@@ -25,4 +25,4 @@ pluginManagement.repositories {
   mavenCentral()
 }
 
-include(":app")
+include(":app", ":keychain")
