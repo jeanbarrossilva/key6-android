@@ -19,7 +19,6 @@
 
 package com.jeanbarrossilva.key6.keychain
 
-import assertk.all
 import assertk.assertFailure
 import assertk.assertThat
 import assertk.assertions.isEqualTo
@@ -35,74 +34,116 @@ import org.junit.runner.RunWith
 
 @RunWith(JUnitParamsRunner::class)
 class KeychainTests {
+  /*
+   * 1. On the factory method:
+   *    Although we're using a specific keychain implementation here, because
+   *    all factory methods end up calling the super constructor (by which
+   *    verifications on the plain main password are done), the instantiation
+   *    behavior remains the same throughout implementations.
+   */
+
+  @Parameters("", " ")
+  @Test
+  fun throwsIfInstantiatingWithBlankPlainMainPassword(
+    plainMainPassword: String
+  ) {
+    assertFailure { UnsecureKeychain.withPlainMainPassword(plainMainPassword) }
+  }
+
+  @Test
+  fun throwsIfInstantiatingWithPlainMainPasswordWithLessThanEightCharacters() {
+    assertFailure { UnsecureKeychain.withPlainMainPassword("1234567") }
+  }
+
+  @Test
+  fun throwsIfInstantiatingWithPlainMainPasswordWithMostlyWhitespaces() {
+    assertFailure { UnsecureKeychain.withPlainMainPassword("1   2") }
+  }
+
   @Test
   fun throwsIfStoringUntitledKey() {
-    val keychain = Keychain()
+    val keychain = UnsecureKeychain.withRandomMainPassword()
     assertFailure {
         keychain.store(
           title = "",
           login = "john@appleseed.com",
-          password = "123",
-          uri = null)
+          plainPassword = "123",
+          path = null)
       }
-      .isInstanceOf<Keychain.KeyStoreError.Untitled>()
+      .isInstanceOf<Keychain.KeyException.Untitled>()
   }
 
   @Parameters(", ", " ,")
   @Test
   fun throwsIfStoringKeyNoLoginAndNoPassword(login: String, password: String) {
-    val keychain = Keychain()
+    val keychain = UnsecureKeychain.withRandomMainPassword()
     assertFailure {
-        keychain.store(title = "Lorem ipsum", login, password, uri = null)
+        keychain.store(title = "Lorem ipsum", login, password, path = null)
       }
-      .isInstanceOf<Keychain.KeyStoreError.Insufficient>()
+      .isInstanceOf<Keychain.KeyException.Insufficient>()
   }
 
   @Test
   fun storesKey() {
-    val keychain = Keychain()
-    val login = "john@appleseed.com"
-    val password = "123"
-    val uri = URI.create("https://website.com/")
-    val keyID = keychain.store(title = "Lorem ipsum", login, password, uri)
+    val keychain = UnsecureKeychain.withRandomMainPassword()
+    val keyTitle = "Lorem ipsum"
+    val keyLogin = "john@appleseed.com"
+    val keyPlainPassword = "123"
+    val keyHashedPassword = keychain.hash(keyPlainPassword)
+    val keyPath = URI.create("https://website.com/")
+    val keyID = keychain.store(keyTitle, keyLogin, keyPlainPassword, keyPath)
     assertThat(keychain)
-      .transform("get") { it[keyID] }
+      .transform("get($keyID)") { it[keyID] }
       .isNotNull()
-      .all {
-        prop(Keychain.Key::id).isEqualTo(keyID)
-        prop(Keychain.Key::login).isEqualTo(login)
-        prop(Keychain.Key::password).isEqualTo(password)
-        prop(Keychain.Key::uri).isEqualTo(uri)
-      }
+      .isEqualTo(
+        Keychain.Key(keyID, keyTitle, keyLogin, keyHashedPassword, keyPath))
   }
 
   @Parameters("", " ")
   @Test
   fun storesKeyWithLoginAndNoPassword(password: String) {
-    val keychain = Keychain()
+    val keychain = UnsecureKeychain.withRandomMainPassword()
     val keyID =
       keychain.store(
         title = "Lorem ipsum",
         login = "john@appleseed.com",
         password,
-        uri = null)
+        path = null)
     assertThat(keychain)
-      .transform("get") { it[keyID] }
+      .transform("get($keyID)") { it[keyID] }
       .isNotNull()
       .prop(Keychain.Key::id)
       .isEqualTo(keyID)
   }
 
   @Test
-  fun removesKey() {
-    val keychain = Keychain()
+  fun storedKeyPasswordIsHashed() {
+    val keychain = UnsecureKeychain.withRandomMainPassword()
+    val keyPlainPassword = "123"
+    val keyHashedPassword = keychain.hash(keyPlainPassword)
     val keyID =
       keychain.store(
         title = "Lorem ipsum",
         login = "john@appleseed.com",
-        password = "123",
-        uri = null)
+        keyPlainPassword,
+        path = null)
+    assertThat(keychain)
+      .transform("get($keyID)") { it[keyID] }
+      .isNotNull()
+      .prop(Keychain.Key::hashedPassword)
+      .isEqualTo(keyHashedPassword)
+  }
+
+  @Test
+  fun removesKey() {
+    val keychain = UnsecureKeychain.withRandomMainPassword()
+    val keyID =
+      keychain.store(
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        plainPassword = "123",
+        path = null)
     keychain.remove(keyID)
-    assertThat(keychain).transform("get") { it[keyID] }.isNull()
+    assertThat(keychain).transform("get($keyID)") { it[keyID] }.isNull()
   }
 }
