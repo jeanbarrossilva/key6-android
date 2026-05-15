@@ -17,26 +17,30 @@
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
+import com.android.build.api.dsl.CommonExtension
 import com.diffplug.gradle.spotless.FormatExtension
 import com.diffplug.gradle.spotless.HasBuiltinDelimiterForLicense
 import com.diffplug.spotless.kotlin.KtfmtStep
 import groovy.util.Node
 import groovy.util.NodeList
 import groovy.xml.XmlParser
-import org.apache.commons.text.WordUtils
-import org.tomlj.Toml
 import java.io.FileNotFoundException
 import java.nio.file.Paths
 import kotlin.io.path.isRegularFile
+import org.apache.commons.text.WordUtils
+import org.tomlj.Toml
 
 plugins {
   alias(libs.plugins.android.application) apply false
+  alias(libs.plugins.android.library) apply false
   alias(libs.plugins.java)
   alias(libs.plugins.spotless)
   kotlin("jvm") version "2.3.0"
 }
 
 kotlin.jvmToolchain(21)
+
+allprojects { repositories.mavenCentral() }
 
 buildscript {
   dependencies {
@@ -45,9 +49,19 @@ buildscript {
   }
 }
 
-allprojects { repositories.mavenCentral() }
-
 subprojects {
+  extensions.findByType<CommonExtension>()?.apply {
+    compileOptions.sourceCompatibility = JavaVersion.VERSION_17
+    compileOptions.targetCompatibility = JavaVersion.VERSION_17
+    defaultConfig.testInstrumentationRunner =
+      "androidx.test.runner.AndroidJUnitRunner"
+
+    buildTypes.getByName("release") {
+      isMinifyEnabled = true
+      proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
+    }
+  }
+
   repositories {
     google()
     gradlePluginPortal()
@@ -60,8 +74,7 @@ spotless {
     throw FileNotFoundException(".editorconfig")
   }
   val maxLineLength =
-    Toml
-      .parse(editorConfigPath)
+    Toml.parse(editorConfigPath)
       .getLong("max_line_length")
       .requireNotNull { "Missing 'max_line_length' in .editorconfig." }
       .toInt()
@@ -163,8 +176,7 @@ private fun HasBuiltinDelimiterForLicense.cStyleBlockLicenseHeader(
 ): FormatExtension.LicenseHeaderConfig =
   licenseHeader(
     "/*\n" +
-      WordUtils
-        .wrap(
+      WordUtils.wrap(
           licenseHeader,
           // wrapLength =
           maxLineLength - 3,
@@ -174,7 +186,8 @@ private fun HasBuiltinDelimiterForLicense.cStyleBlockLicenseHeader(
           false,
           // wrapOn =
           " |\n",
-        ).lines()
+        )
+        .lines()
         .joinToString(separator = "\n * ", prefix = " * ") +
       "\n */\n\n",
   )

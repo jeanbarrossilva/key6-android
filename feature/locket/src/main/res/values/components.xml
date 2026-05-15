@@ -16,20 +16,16 @@
   ~ You should have received a copy of the GNU General Public License along with
   ~ this program. If not, see https://www.gnu.org/licenses.
   -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
-  <application
-    android:icon="@mipmap/ic_launcher"
-    android:label="@string/app_name"
-    android:roundIcon="@mipmap/ic_launcher_round"
-    android:supportsRtl="true"
-    android:theme="@style/Theme.Key6">
-    <activity
-      android:exported="true"
-      android:name=".Key6Activity">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN" />
-        <category android:name="android.intent.category.LAUNCHER" />
-      </intent-filter>
-    </activity>
-  </application>
-</manifest>
+<resources>
+  <style
+    name="Theme.Key6.Components.TextField.Prominent"
+    parent="Theme.Key6">
+    <item name="boxCornerRadiusBottomEnd">@dimen/radius_m</item>
+    <item name="boxCornerRadiusBottomStart">@dimen/radius_m</item>
+    <item name="boxCornerRadiusTopEnd">@dimen/radius_m</item>
+    <item name="boxCornerRadiusTopStart">@dimen/radius_m</item>
+    <item name="boxBackgroundColor">?colorSurface</item>
+    <item name="boxStrokeColor">@color/border</item>
+    <item name="boxStrokeWidth">4dp</item>
+  </style>
+</resources>

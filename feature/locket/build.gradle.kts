@@ -17,12 +17,18 @@
  * this program. If not, see https://www.gnu.org/licenses.
  */
 
-rootProject.name = "Key6"
-
-pluginManagement.repositories {
-  google()
-  gradlePluginPortal()
-  mavenCentral()
+plugins {
+  alias(libs.plugins.android.library)
 }
 
-include(":app", ":feature:locket", ":keychain")
+android {
+  buildFeatures.viewBinding = true
+  compileSdk = libs.versions.android.sdk.target.get().toInt()
+  defaultConfig.minSdk = libs.versions.android.sdk.min.get().toInt()
+  namespace = "com.jeanbarrossilva.key6.feature.locket"
+}
+
+dependencies {
+  implementation(libs.android.appcompat)
+  implementation(libs.material)
+}

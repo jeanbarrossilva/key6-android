@@ -30,7 +30,9 @@ max_line_length = 80
 trim_trailing_whitespace = true
 
 [*.xml]
+ij_xml_align_attributes = true
 ij_xml_attribute_wrap = on_every_item
+ij_xml_continuation_indent_size = 2
 ij_xml_keep_line_breaks = false
 ij_xml_keep_whitespaces = false
 ij_xml_space_inside_empty_tag = true

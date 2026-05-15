@@ -1,4 +1,4 @@
-<!--
+<?xml version="1.0" encoding="utf-8"?><!--
   ~ Copyright © Jean Silva
   ~
   ~ This file is part of the Key6 open-source project.
@@ -16,9 +16,14 @@
   ~ You should have received a copy of the GNU General Public License along with
   ~ this program. If not, see https://www.gnu.org/licenses.
   -->
-<resources>
-  <style
-    name="Theme.Key6"
-    parent="Theme.MaterialComponents.DayNight.NoActionBar">
-  </style>
-</resources>
+<navigation
+  xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:app="http://schemas.android.com/apk/res-auto"
+  xmlns:tools="http://schemas.android.com/tools"
+  android:id="@+id/main"
+  app:startDestination="@id/locket_fragment">
+  <fragment
+    android:id="@+id/locket_fragment"
+    android:name="com.jeanbarrossilva.key6.feature.locket.LocketFragment"
+    tools:layout="@layout/fragment_locket" />
+</navigation>

@@ -15,12 +15,11 @@
 # You should have received a copy of the GNU General Public License along with
 # this program. If not, see https://www.gnu.org/licenses.
 
-[versions]
-junit5 = '6.0.3'
-
 [libraries]
 android-appcompat = { group = 'androidx.appcompat', name = 'appcompat', version = '1.7.1' }
 android-core = { group = 'androidx.core', name = 'core-ktx', version = '1.18.0' }
+android-navigation-fragment = { group = 'androidx.navigation', name = 'navigation-fragment', version.ref = 'android-navigation' }
+android-navigation-ui = { group = 'androidx.navigation', name = 'navigation-ui', version.ref = 'android-navigation' }
 android-test-espresso-core = { group = 'androidx.test.espresso', name = 'espresso-core', version = '3.7.0' }
 android-test-junit = { group = 'androidx.test.ext', name = 'junit', version = '1.3.0' }
 apache-commons-lang = { group = 'org.apache.commons', name = 'commons-lang3', version = '3.20.0' }
@@ -29,10 +28,15 @@ assertk = { group = 'com.willowtreeapps.assertk', name = 'assertk', version = '0
 jUnit = { group = 'junit', name = 'junit', version = '4.13.2' }
 jUnitParams = { group = 'pl.pragmatists', name = 'JUnitParams', version = '1.1.1' }
 material = { group = 'com.google.android.material', name = 'material', version = '1.13.0' }
-spring-security-crypto = { group = 'org.springframework.security', name = 'spring-security-crypto', version = '6.0.3' }
 tomlJ = { group = 'org.tomlj', name = 'tomlj', version = '1.1.1' }
 
 [plugins]
 android-application = { id = 'com.android.application', version = '9.1.0-alpha08' }
 java = { id = 'java' }
 spotless = { id = 'com.diffplug.spotless', version = '8.4.0' }
+android-library = { id = "com.android.library", version = "9.1.0-alpha08" }
+
+[versions]
+android-navigation = '2.9.8'
+android-sdk-min = '29'
+android-sdk-target = '36'
