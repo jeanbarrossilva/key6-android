@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -53,14 +53,14 @@ import kotlin.uuid.Uuid
  *
  * To achieve this goal, keychains require a single, main password; this
  * password is the only one the user needs to remember. It will be used to
- * "unlock" (i.e., unhash) every password stored into the keychain.
+ * unlock the keychain and unhash passwords stored into it.
  *
  * ## Creating a keychain
  *
- * Keychains of different types differ, only, in how they hash their passwords.
- * It is recommended to use a keychain that applies any variant of the Argon2
- * hash function in production because, despite the disadvantage in performance,
- * such a function consumes a significant amount of memory, difficulting the
+ * Keychains of different types may differ in how they hash their passwords. It
+ * is recommended to use a keychain that applies any variant of the Argon2 hash
+ * function in production because, despite the disadvantage in performance, such
+ * a function consumes a significant amount of memory, difficulting the
  * unhashing of its passwords. Keychains with less secure functions may be used
  * for testing for the sake of performance.
  *
@@ -88,6 +88,16 @@ abstract class Keychain {
    */
   private val store = HashMap<String, Key>()
 
+  /**
+   * Maximum amount of times an incorrect main password may be provided when
+   * trying to unlock this keychain. Upon requesting an operation that requires
+   * an unlock (e.g., obtaining a key) and failing more than the amount defined
+   * here, an exception will be thrown.
+   *
+   * @see unlock
+   */
+  var maxUnlockAttemptCount = 3
+
   /** Authentication metadata for a site. */
   class Key {
     /**
@@ -110,18 +120,18 @@ abstract class Keychain {
     val login: String
 
     /**
-     * Hashed form of the private string defined by the user as the pair to
-     * their login (if set) for authenticating at the site. If the login has
-     * been specified, this may be empty.
-     */
-    val hashedPassword: String
-
-    /**
      * Path to the site at which the user signed up with the given login and
      * password. This may refer to a website, a local file (e.g., a
      * password-protected compressed file), etc.
      */
     val path: URI?
+
+    /**
+     * Hashed form of the private string defined by the user as the pair to
+     * their login (if set) for authenticating at the site. If the login has
+     * been specified, this may be empty.
+     */
+    internal val hashedPassword: String
 
     @Throws(KeyException::class)
     internal constructor(
@@ -171,6 +181,16 @@ abstract class Keychain {
   }
 
   /**
+   * Exception thrown whenever a keychain, in an attempt to be unlocked,
+   * requests its main password in plaintext [Keychain.maxUnlockAttemptCount]
+   * consecutive times and the correct password is never provided.
+   *
+   * @see Keychain.requestPlainMainPassword
+   */
+  class IncorrectMainPasswordException internal constructor() :
+    IllegalArgumentException("Main password is incorrect.")
+
+  /**
    * Instantiates a keychain from a plain main password.
    *
    * @param plainMainPassword Single password for accessing every key stored
@@ -213,13 +233,38 @@ abstract class Keychain {
   }
 
   /**
+   * Requests that the main password of this keychain be provided in plaintext.
+   * This callback is called whenever a key is requested and this keychain has
+   * been idle for longer than its inactivity threshold.
+   *
+   * @return The provided main password in plaintext. May be different from the
+   *   actual one of this keychain, since there might be a typo or the user may
+   *   not be the owner of this keychain.
+   */
+  protected abstract suspend fun requestPlainMainPassword(): String
+
+  /**
    * Hashes the plain password of a key being stored, using the algorithm
    * specific to this implementation.
    *
    * @param plainPassword Some password in plaintext. This may be the main
-   *   password of this keychain, or the password of a key to be stored.
+   *   password of this keychain, or the password of a key that will be stored
+   *   into it.
    */
   protected abstract fun hash(plainPassword: String): String
+
+  /**
+   * Undoes the hashing performed by a previous call to [hash] on the given
+   * password. By definition, for some password *x* in plaintext,
+   *
+   * - `hash(x)` = [hashedPassword]; and
+   * - `unhash(hashedPassword)` = *x*.
+   *
+   * @param hashedPassword Password hashed by this keychain. This may be the
+   *   hashed form of the main password of this keychain, or that of the
+   *   password of a key stored in it.
+   */
+  protected abstract fun unhash(hashedPassword: String): String
 
   /**
    * Retrieves a key previously stored into this keychain.
@@ -228,7 +273,11 @@ abstract class Keychain {
    * @return The stored key, or `null` if no key with the given ID is stored at
    *   the moment.
    */
-  operator fun get(keyID: String) = store[keyID]
+  @Throws(IncorrectMainPasswordException::class)
+  suspend operator fun get(keyID: String): Key? {
+    unlock()
+    return store[keyID]
+  }
 
   /**
    * Removes a key stored into this keychain. In case there is no key with the
@@ -238,6 +287,27 @@ abstract class Keychain {
    */
   fun remove(keyID: String) {
     store.remove(keyID)
+  }
+
+  /**
+   * Requests that this keychain be unlocked by having its main password
+   * provided in plaintext. Essential for operations that require maximum
+   * security, such as reading some key.
+   *
+   * Up to [maxUnlockAttemptCount] attempts of providing the correct main
+   * password may be made. In case the user fails at that, this method will
+   * throw an exception and prohibit the operation from being performed.
+   */
+  @Throws(IncorrectMainPasswordException::class)
+  private suspend fun unlock() {
+    var unlockAttemptCount = 0
+    val unhashedPlainMainPassword = unhash(hashedMainPassword)
+    while (true) {
+      val providedPlainMainPassword = requestPlainMainPassword()
+      if (unhashedPlainMainPassword == providedPlainMainPassword) return
+      else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
+      else throw IncorrectMainPasswordException()
+    }
   }
 
   companion object {
