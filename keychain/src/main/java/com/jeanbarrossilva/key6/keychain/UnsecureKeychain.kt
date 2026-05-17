@@ -51,18 +51,18 @@ private constructor(
    */
   private var currentUnlockAttemptCount = 0
 
-  override suspend fun requestPlainMainPassword(): String {
-    val unhashedPlainMainPassword = unhash(hashedMainPassword)
-    if (currentUnlockAttemptCount++ < unlockAttemptRate.targetCount(this))
-      return unlockAttemptRate.generateMainPassword(unhashedPlainMainPassword)
-    else {
-      currentUnlockAttemptCount = 0
-      return unhashedPlainMainPassword
-    }
-  }
-
   public override fun hash(plainPassword: String) =
     Base64.encode(plainPassword.toByteArray())
+
+  override suspend fun requestPlainMainPassword(): String {
+    val plainMainPassword = unhash(hashedMainPassword)
+    if (currentUnlockAttemptCount++ < unlockAttemptRate.targetCount(this))
+      return unlockAttemptRate.generatePlainMainPassword(plainMainPassword)
+    else {
+      currentUnlockAttemptCount = 0
+      return plainMainPassword
+    }
+  }
 
   override fun unhash(hashedPassword: String) =
     Base64.decode(hashedPassword).toString(Charsets.UTF_8)
@@ -136,19 +136,19 @@ enum class UnlockAttemptRate {
    * from the correct one for the keychain; for a *lowest* rate, returns the
    * actual main password of the keychain.
    *
-   * @param unhashedPlainMainPassword The main password in plaintext, with the
-   *   hashing applied to it undone.
+   * @param plainMainPassword The main password in plaintext, with the hashing
+   *   applied to it undone.
    */
-  internal fun generateMainPassword(unhashedPlainMainPassword: String): String {
+  internal fun generatePlainMainPassword(plainMainPassword: String): String {
     return when (this) {
-      Lowest -> unhashedPlainMainPassword
+      Lowest -> plainMainPassword
       Mid,
       Exceeding -> {
-        var generatedMainPassword: String
+        var generatedPlainMainPassword: String
         do {
-          generatedMainPassword = RandomStringUtils.insecure().next(8)
-        } while (unhashedPlainMainPassword == generatedMainPassword)
-        generatedMainPassword
+          generatedPlainMainPassword = RandomStringUtils.insecure().next(8)
+        } while (plainMainPassword == generatedPlainMainPassword)
+        generatedPlainMainPassword
       }
     }
   }

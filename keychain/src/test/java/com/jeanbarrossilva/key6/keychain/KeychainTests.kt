@@ -1,35 +1,39 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
 package com.jeanbarrossilva.key6.keychain
 
+import assertk.all
 import assertk.assertFailure
 import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNotNull
 import assertk.assertions.isNull
+import assertk.assertions.isTrue
 import assertk.assertions.prop
 import assertk.coroutines.assertions.suspendCall
 import java.net.URI
 import junitparams.JUnitParamsRunner
 import junitparams.Parameters
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,8 +54,8 @@ class KeychainTests {
         login = "john@appleseed.com",
         plainPassword = "123",
         path = null)
-    keychain.remove(keyID)
     runTest {
+      keychain.remove(keyID)
       assertThat(keychain).suspendCall("get($keyID)") { it[keyID] }.isNull()
     }
   }
@@ -184,6 +188,24 @@ class KeychainKeyStorageTests {
 
 class KeychainLockTests {
   @Test
+  fun isLockedByDefault() {
+    val keychain =
+      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Lowest)
+    assertThat(keychain).all {
+      prop(UnsecureKeychain::isLocked).isTrue()
+      prop(UnsecureKeychain::inactivityThreshold).isEqualTo(Duration.ZERO)
+    }
+  }
+
+  @Test
+  fun throwsIfInactivityThresholdIsNegative() {
+    val keychain =
+      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Lowest)
+    assertFailure { keychain.inactivityThreshold = (-2).milliseconds }
+      .isInstanceOf<IllegalArgumentException>()
+  }
+
+  @Test
   fun throwsIfCannotUnlockToReadKey() {
     val keychain =
       UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
@@ -197,5 +219,55 @@ class KeychainLockTests {
       assertFailure { keychain[keyID] }
         .isInstanceOf<Keychain.IncorrectMainPasswordException>()
     }
+  }
+
+  @Test
+  fun readsKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
+    val keychain =
+      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
+    keychain.inactivityThreshold = Duration.INFINITE
+    val keyID =
+      keychain.store(
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        plainPassword = "123",
+        path = null)
+    runTest {
+      assertThat(keychain)
+        .suspendCall("get($keyID)") { it[keyID] }
+        .isNotNull()
+        .prop(Keychain.Key::id)
+        .isEqualTo(keyID)
+    }
+  }
+
+  @Test
+  fun throwsIfCannotUnlockToRemoveKey() {
+    val keychain =
+      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
+    val keyID =
+      keychain.store(
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        plainPassword = "123",
+        path = null)
+    runTest {
+      assertFailure { keychain.remove(keyID) }
+        .isInstanceOf<Keychain.IncorrectMainPasswordException>()
+    }
+  }
+
+  @Test
+  fun removesKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
+    val keychain =
+      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
+    keychain.inactivityThreshold = Duration.INFINITE
+    val keyID =
+      keychain.store(
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        plainPassword = "123",
+        path = null)
+    runTest { keychain.remove(keyID) }
   }
 }

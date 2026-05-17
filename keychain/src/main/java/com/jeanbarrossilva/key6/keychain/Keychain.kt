@@ -21,6 +21,8 @@ package com.jeanbarrossilva.key6.keychain
 
 import java.net.URI
 import java.util.Objects
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
@@ -43,18 +45,6 @@ import kotlin.uuid.Uuid
  * assumptions on the format of this string should be made; however, as of v1 of
  * Key6, every key identifier is a UUID v7.
  *
- * ## Main-password mechanism
- *
- * The sole purpose of a keychain is to make the task of storing passwords and
- * generating strong, new ones easier, removing the burden of having to remember
- * them all from the user. Password-wise, with the process of generating
- * passwords automated, the user's prominence to cyberattacks may be
- * significantly reduced.
- *
- * To achieve this goal, keychains require a single, main password; this
- * password is the only one the user needs to remember. It will be used to
- * unlock the keychain and unhash passwords stored into it.
- *
  * ## Creating a keychain
  *
  * Keychains of different types may differ in how they hash their passwords. It
@@ -72,9 +62,87 @@ import kotlin.uuid.Uuid
  * method is called), the given plain main password undergoes some verifications
  * as to keep the keychain minimally secure. For more on these, refer to
  * [validatePlainMainPassword].
+ *
+ * ## Locking and unlocking
+ *
+ * The sole purpose of a keychain is to make the task of storing passwords and
+ * generating strong, new ones easier, removing the burden of having to remember
+ * them all from the user. Password-wise, with the process of generating
+ * passwords automated, the user's prominence to cyberattacks may be
+ * significantly reduced.
+ *
+ * To achieve this goal, keychains require a single, main password. This
+ * password is the only one the user needs to remember, and will be used to
+ * unlock the keychain and unhash passwords stored into it. The keychain *may*
+ * require an unlock when
+ *
+ * - reading one of its keys; and
+ * - removing one of its keys.
+ *
+ * The main password of the keychain *may* be requested, with a leniency of
+ * [maxUnlockAttemptCount] attempts for the correct password to be provided; in
+ * case that maximum is exceeded, with all requests having resulted in incorrect
+ * passwords, an exception will be thrown, preventing the operation from being
+ * performed.
+ *
+ * The main password *will not* be requested, however, if the time passed since
+ * the keychain was last active does not exceed its [inactivityThreshold]; in
+ * such a scenario, the reading and removal of keys will return immediately.
+ * This threshold starts off zeroed: by default, these operations *will* require
+ * the main password, always.
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class Keychain {
+  /**
+   * Whether this keychain has not been unlocked in the last *n* milliseconds,
+   * where *n* is the amount of milliseconds in the [inactivityThreshold].
+   *
+   * When this is `true`, it is guaranteed that the next reading or removal of a
+   * key *will*, first, require that the main password be provided in plaintext.
+   * Otherwise, these operations will be performed without any restriction.
+   *
+   * @see get
+   * @see remove
+   */
+  val isLocked
+    get() =
+      inactivityThresholdInMilliseconds == 0L ||
+        System.currentTimeMillis() - lastActivityTimeInMilliseconds >=
+          inactivityThresholdInMilliseconds
+
+  /**
+   * Amount of time required to have passed since the last time in which this
+   * keychain was active for it to be considered idle and, therefore, be locked.
+   * Starts off zeroed, but may be changed by the user later.
+   *
+   * This is guaranteed to be ≥ [Duration.ZERO], where being zeroed denotes that
+   * the main password will be requested at each reading or removal of keys.
+   * Trying to define it as some negative duration will result in an exception
+   * being thrown.
+   *
+   * @see isLocked
+   */
+  var inactivityThreshold
+    get() =
+      if (inactivityThresholdInMilliseconds == 0L) Duration.ZERO
+      else inactivityThresholdInMilliseconds.milliseconds
+    @Throws(IllegalArgumentException::class)
+    set(inactivityThreshold) {
+      require(inactivityThreshold >= Duration.ZERO) {
+        "The inactivity threshold of a keychain should be >= 0."
+      }
+      inactivityThresholdInMilliseconds =
+        inactivityThreshold.inWholeMilliseconds
+    }
+
+  /**
+   * Maximum amount of times an incorrect main password may be provided when
+   * trying to unlock this keychain. Upon requesting an operation that requires
+   * an unlock (e.g., obtaining a key) and failing more than the amount defined
+   * here, an exception will be thrown.
+   */
+  var maxUnlockAttemptCount = 3
+
   /**
    * Hashed form of the single password for accessing every key stored into this
    * keychain.
@@ -89,14 +157,23 @@ abstract class Keychain {
   private val store = HashMap<String, Key>()
 
   /**
-   * Maximum amount of times an incorrect main password may be provided when
-   * trying to unlock this keychain. Upon requesting an operation that requires
-   * an unlock (e.g., obtaining a key) and failing more than the amount defined
-   * here, an exception will be thrown.
+   * Amount of milliseconds required to have passed since the last time in which
+   * this keychain was active for it to be considered idle and, therefore, be
+   * locked. Starts off as zero, but may be changed by the user later.
    *
-   * @see unlock
+   * This is guaranteed to be ≥ 0, where being 0 denotes that the main password
+   * will be requested at each reading or removal of keys.
+   *
+   * @see isLocked
    */
-  var maxUnlockAttemptCount = 3
+  private var inactivityThresholdInMilliseconds = 0L
+
+  /**
+   * Unix epoch in which an operation (such as reading or removing a key) was
+   * last performed by this keychain. By default, represents the time in which
+   * the system was when this keychain was instantiated.
+   */
+  private var lastActivityTimeInMilliseconds = System.currentTimeMillis()
 
   /** Authentication metadata for a site. */
   class Key {
@@ -262,7 +339,7 @@ abstract class Keychain {
    *
    * @param hashedPassword Password hashed by this keychain. This may be the
    *   hashed form of the main password of this keychain, or that of the
-   *   password of a key stored in it.
+   *   password of a key stored into it.
    */
   protected abstract fun unhash(hashedPassword: String): String
 
@@ -285,14 +362,15 @@ abstract class Keychain {
    *
    * @param keyID Unique identifier of the key to be removed.
    */
-  fun remove(keyID: String) {
+  suspend fun remove(keyID: String) {
+    unlock()
     store.remove(keyID)
   }
 
   /**
-   * Requests that this keychain be unlocked by having its main password
-   * provided in plaintext. Essential for operations that require maximum
-   * security, such as reading some key.
+   * Requests that this keychain be unlocked (if locked) by having its main
+   * password provided in plaintext. Essential for operations that require
+   * maximum security, such as reading some key.
    *
    * Up to [maxUnlockAttemptCount] attempts of providing the correct main
    * password may be made. In case the user fails at that, this method will
@@ -300,14 +378,26 @@ abstract class Keychain {
    */
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlock() {
+    if (!isLocked) return
     var unlockAttemptCount = 0
-    val unhashedPlainMainPassword = unhash(hashedMainPassword)
+    val expectedPlainMainPassword = unhash(hashedMainPassword)
     while (true) {
       val providedPlainMainPassword = requestPlainMainPassword()
-      if (unhashedPlainMainPassword == providedPlainMainPassword) return
+      if (providedPlainMainPassword == expectedPlainMainPassword) break
       else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
       else throw IncorrectMainPasswordException()
     }
+    markAsActive()
+  }
+
+  /**
+   * Marks this keychain as currently being in an active state, updating its
+   * last activity time to that of the system since the Unix epoch. This is
+   * essential for automatically locking this keychain when the amount of time
+   * since its last activity (defined by the user) has been exceeded.
+   */
+  private fun markAsActive() {
+    lastActivityTimeInMilliseconds = System.currentTimeMillis()
   }
 
   companion object {
