@@ -5,6 +5,7 @@ plugins {
 
 dependencies {
   implementation(libs.apache.commons.lang)
+  implementation(libs.argon2)
   testImplementation(libs.assertk)
   testImplementation(libs.assertk.coroutines)
   testImplementation(libs.jUnit)

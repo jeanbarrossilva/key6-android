@@ -1,33 +1,36 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
 package com.jeanbarrossilva.key6.keychain
 
+import de.mkammerer.argon2.Argon2
+import de.mkammerer.argon2.Argon2Factory
 import java.net.URI
 import java.util.Objects
+import kotlin.math.min
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
 
 /**
- * Actor responsible for the main feature of Key6: storing, hashing and
+ * Actor responsible for the main feature of Key6: storing, encrypting and
  * retrieving authentication information of the user at various sites. Besides
  * securing these data, allows for generating random passwords with custom
  * constraints and, consequently, providing greater safety against attacks
@@ -47,21 +50,26 @@ import kotlin.uuid.Uuid
  *
  * ## Creating a keychain
  *
- * Keychains of different types may differ in how they hash their passwords. It
- * is recommended to use a keychain that applies any variant of the Argon2 hash
- * function in production because, despite the disadvantage in performance, such
- * a function consumes a significant amount of memory, difficulting the
- * unhashing of its passwords. Keychains with less secure functions may be used
- * for testing for the sake of performance.
+ * Keychains of different types may differ in the cryptography employed on the
+ * passwords of their keys. Some may implement secure encryption algorithms,
+ * while others may rely on less secure alternatives for the sake of
+ * performance; keychains like the first should be used in production, where
+ * security is more important than performance, and ones such as the latter are
+ * suitable for tests, in which that priority is reversed.
+ *
+ * Regardless of the algorithm for encrypting keys' passwords, the main password
+ * of a keychain is always hashed with the
+ * [Argon2](https://github.com/P-H-C/phc-winner-argon2/blob/master/argon2-specs.pdf)
+ * hash function, with a memory usage overhead of 64 MiB.
  *
  * All types of keychain expose a factory method for instantiating them from a
- * main password in plaintext: `T.Companion.withPlainMainPassword(String)`,
- * where `T` is the type.
+ * main password in plaintext: `T.Companion.withMainPassword(String)`, where `T`
+ * is the type.
  *
  * When a type of keychain is requested to be instantiated (i.e., its factory
- * method is called), the given plain main password undergoes some verifications
- * as to keep the keychain minimally secure. For more on these, refer to
- * [validatePlainMainPassword].
+ * method is called), the given main password undergoes some verifications as to
+ * keep the keychain minimally secure. For more on these, refer to
+ * [validateMainPassword].
  *
  * ## Locking and unlocking
  *
@@ -73,7 +81,7 @@ import kotlin.uuid.Uuid
  *
  * To achieve this goal, keychains require a single, main password. This
  * password is the only one the user needs to remember, and will be used to
- * unlock the keychain and unhash passwords stored into it. The keychain *may*
+ * unlock the keychain and decrypt passwords stored into it. The keychain *may*
  * require an unlock when
  *
  * - reading one of its keys; and
@@ -143,11 +151,26 @@ abstract class Keychain {
    */
   var maxUnlockAttemptCount = 3
 
+  /** Argon2i hash of the main password of this keychain. */
+  protected val mainPasswordHash: String
+
   /**
-   * Hashed form of the single password for accessing every key stored into this
-   * keychain.
+   * Argon2i hasher for the main password given in plaintext, with
+   *
+   * - 2 iterations;
+   * - a 128-byte salt;
+   * - a 128-byte hash; and
+   * - a memory consumption of (potentially) 64 MB.
+   *
+   * The amount of memory consumed will depend on memory availability: if more
+   * than 64 MB are available, the consumption will be of 64 MB; otherwise, 15%
+   * of that available memory will be consumed.
    */
-  protected val hashedMainPassword: String
+  private val mainPasswordHasher: Argon2 =
+    Argon2Factory.create(
+      Argon2Factory.Argon2Types.ARGON2i,
+      /* defaultSaltLength = */ 128,
+      /* defaultHashLength =  */ 128)
 
   /**
    * Keys stored into this keychain by a prior call to [store], and that have
@@ -204,26 +227,26 @@ abstract class Keychain {
     val path: URI?
 
     /**
-     * Hashed form of the private string defined by the user as the pair to
+     * Encrypted form of the private string defined by the user as the pair to
      * their login (if set) for authenticating at the site. If the login has
      * been specified, this may be empty.
      */
-    internal val hashedPassword: String
+    internal val encryptedPassword: String
 
     @Throws(KeyException::class)
     internal constructor(
       id: String,
       title: String,
       login: String,
-      hashedPassword: String,
+      encryptedPassword: String,
       path: URI?
     ) {
       this.title = title.trim()
       this.login = login.trim()
       if (this.title.isEmpty()) throw KeyException.Untitled()
-      if (this.login.isEmpty() && hashedPassword.isBlank())
+      if (this.login.isEmpty() && encryptedPassword.isBlank())
         throw KeyException.Insufficient()
-      this.hashedPassword = hashedPassword
+      this.encryptedPassword = encryptedPassword
       this.id = id
       this.path = path
     }
@@ -233,11 +256,11 @@ abstract class Keychain {
         id == other.id &&
         title == other.title &&
         login == other.login &&
-        hashedPassword == other.hashedPassword &&
+        encryptedPassword == other.encryptedPassword &&
         path == other.path
 
     override fun hashCode() =
-      Objects.hash(id, title, login, hashedPassword, path)
+      Objects.hash(id, title, login, encryptedPassword, path)
   }
 
   /**
@@ -262,21 +285,27 @@ abstract class Keychain {
    * requests its main password in plaintext [Keychain.maxUnlockAttemptCount]
    * consecutive times and the correct password is never provided.
    *
-   * @see Keychain.requestPlainMainPassword
+   * @see Keychain.requestMainPassword
    */
   class IncorrectMainPasswordException internal constructor() :
     IllegalArgumentException("Main password is incorrect.")
 
   /**
-   * Instantiates a keychain from a plain main password.
+   * Instantiates a keychain from a main password.
    *
-   * @param plainMainPassword Single password for accessing every key stored
-   *   into the instantiated keychain, in plaintext.
+   * @param mainPassword Single password for accessing every key stored into the
+   *   instantiated keychain, in plaintext.
    */
   @Throws(KeychainException::class)
-  protected constructor(plainMainPassword: String) {
-    validatePlainMainPassword(plainMainPassword)
-    hashedMainPassword = hash(plainMainPassword)
+  protected constructor(mainPassword: String) {
+    validateMainPassword(mainPassword)
+    val runtime = Runtime.getRuntime()
+    mainPasswordHash =
+      mainPasswordHasher.hash(
+        /* iterations = */ 2,
+        /* memory = */ min((runtime.freeMemory() * .15).toInt(), 1 shl 16),
+        /* parallelism = */ runtime.availableProcessors(),
+        mainPassword.toCharArray())
   }
 
   /**
@@ -304,8 +333,8 @@ abstract class Keychain {
     path: URI?
   ): String {
     val id = Uuid.generateV7().toString()
-    val hashedPassword = hash(plainPassword)
-    storage[id] = Key(id, title, login, hashedPassword, path)
+    val encryptedPassword = encrypt(plainPassword)
+    storage[id] = Key(id, title, login, encryptedPassword, path)
     return id
   }
 
@@ -318,30 +347,26 @@ abstract class Keychain {
    *   actual one of this keychain, since there might be a typo or the user may
    *   not be the owner of this keychain.
    */
-  protected abstract suspend fun requestPlainMainPassword(): String
+  protected abstract suspend fun requestMainPassword(): String
 
   /**
-   * Hashes the plain password of a key being stored, using the algorithm
+   * Encrypts the plain password of a key being stored, using the algorithm
    * specific to this implementation.
    *
-   * @param plainPassword Some password in plaintext. This may be the main
-   *   password of this keychain, or the password of a key that will be stored
-   *   into it.
+   * @param plainPassword Some password in plaintext.
    */
-  protected abstract fun hash(plainPassword: String): String
+  protected abstract fun encrypt(plainPassword: String): String
 
   /**
-   * Undoes the hashing performed by a previous call to [hash] on the given
-   * password. By definition, for some password *x* in plaintext,
+   * Undoes the encryption performed by a previous call to [encrypt] on the
+   * given password. By definition, for some password *x* in plaintext,
    *
-   * - `hash(x)` = [hashedPassword]; and
-   * - `unhash(hashedPassword)` = *x*.
+   * - `encrypt(x)` = [encryptedPassword]; and
+   * - `decrypt(encryptedPassword)` = *x*.
    *
-   * @param hashedPassword Password hashed by this keychain. This may be the
-   *   hashed form of the main password of this keychain, or that of the
-   *   password of a key stored into it.
+   * @param encryptedPassword Password encrypted by this keychain.
    */
-  protected abstract fun unhash(hashedPassword: String): String
+  protected abstract fun decrypt(encryptedPassword: String): String
 
   /**
    * Retrieves a key previously stored into this keychain.
@@ -380,10 +405,11 @@ abstract class Keychain {
   private suspend fun unlock() {
     if (!isLocked) return
     var unlockAttemptCount = 0
-    val expectedPlainMainPassword = unhash(hashedMainPassword)
     while (true) {
-      val providedPlainMainPassword = requestPlainMainPassword()
-      if (providedPlainMainPassword == expectedPlainMainPassword) break
+      val requestedMainPassword = requestMainPassword()
+      if (mainPasswordHasher.verify(
+        mainPasswordHash, requestedMainPassword.toCharArray()))
+        break
       else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
       else throw IncorrectMainPasswordException()
     }
@@ -402,9 +428,9 @@ abstract class Keychain {
 
   companion object {
     /**
-     * Ensures that the plain main password given when instantiating some type
-     * of keychain is minimally secure. There are some rules that a plain main
-     * password should follow. It
+     * Ensures that the main password given when instantiating some type of
+     * keychain is minimally secure. There are some rules that a main password
+     * should follow. It
      *
      * 1. must be, at least, 8 (eight) characters long; and
      * 2. most of its characters cannot be whitespaces.
@@ -412,17 +438,17 @@ abstract class Keychain {
      * If one of these rules is violated, this method will throw a
      * [KeychainException] respective to that rule.
      *
-     * @param plainMainPassword Main password in plaintext to be validated.
+     * @param mainPassword Main password in plaintext to be validated.
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    private fun validatePlainMainPassword(plainMainPassword: String) {
+    private fun validateMainPassword(mainPassword: String) {
       val areMostCharactersWhitespaces = {
-        plainMainPassword.findConsecutions(Char::isWhitespace).any {
-          it.count >= plainMainPassword.length / 2
+        mainPassword.findConsecutions(Char::isWhitespace).any {
+          it.count >= mainPassword.length / 2
         }
       }
-      if (plainMainPassword.length < 8 || areMostCharactersWhitespaces())
+      if (mainPassword.length < 8 || areMostCharactersWhitespaces())
         throw KeychainException.ShortMainPassword()
     }
   }
@@ -442,5 +468,5 @@ sealed class KeychainException(message: String) :
    */
   class ShortMainPassword :
     KeychainException(
-      "Plain main password of a keychain should contain at least 8 characters.")
+      "Main password of a keychain should contain at least 8 characters.")
 }

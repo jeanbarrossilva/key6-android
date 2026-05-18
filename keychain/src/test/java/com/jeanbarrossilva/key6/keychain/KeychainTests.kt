@@ -72,20 +72,18 @@ class KeychainInstantiationTests {
 
   @Parameters("", " ")
   @Test
-  fun throwsIfInstantiatingWithBlankPlainMainPassword(
-    plainMainPassword: String
-  ) {
-    assertFailure { UnsecureKeychain.withPlainMainPassword(plainMainPassword) }
+  fun throwsIfInstantiatingWithBlankMainPassword(mainPassword: String) {
+    assertFailure { UnsecureKeychain.withMainPassword(mainPassword) }
   }
 
   @Test
-  fun throwsIfInstantiatingWithPlainMainPasswordWithLessThanEightCharacters() {
-    assertFailure { UnsecureKeychain.withPlainMainPassword("1234567") }
+  fun throwsIfInstantiatingWithMainPasswordWithLessThanEightCharacters() {
+    assertFailure { UnsecureKeychain.withMainPassword("1234567") }
   }
 
   @Test
-  fun throwsIfInstantiatingWithPlainMainPasswordWithMostlyWhitespaces() {
-    assertFailure { UnsecureKeychain.withPlainMainPassword("1   2") }
+  fun throwsIfInstantiatingWithMainPasswordWithMostlyWhitespaces() {
+    assertFailure { UnsecureKeychain.withMainPassword("1   2") }
   }
 }
 
@@ -129,7 +127,7 @@ class KeychainKeyStorageTests {
     val keyTitle = "Lorem ipsum"
     val keyLogin = "john@appleseed.com"
     val keyPlainPassword = "123"
-    val keyHashedPassword = keychain.hash(keyPlainPassword)
+    val keyEncryptedPassword = keychain.encrypt(keyPlainPassword)
     val keyPath = URI.create("https://website.com/")
     val keyID = keychain.store(keyTitle, keyLogin, keyPlainPassword, keyPath)
     runTest {
@@ -137,7 +135,8 @@ class KeychainKeyStorageTests {
         .suspendCall("get($keyID)") { it[keyID] }
         .isNotNull()
         .isEqualTo(
-          Keychain.Key(keyID, keyTitle, keyLogin, keyHashedPassword, keyPath))
+          Keychain.Key(
+            keyID, keyTitle, keyLogin, keyEncryptedPassword, keyPath))
     }
   }
 
@@ -169,7 +168,7 @@ class KeychainKeyStorageTests {
   fun storedKeyPasswordIsHashed() {
     val keychain = UnsecureKeychain.withRandomMainPassword()
     val keyPlainPassword = "123"
-    val keyHashedPassword = keychain.hash(keyPlainPassword)
+    val keyEncryptedPassword = keychain.encrypt(keyPlainPassword)
     val keyID =
       keychain.store(
         title = "Lorem ipsum",
@@ -180,8 +179,8 @@ class KeychainKeyStorageTests {
       assertThat(keychain)
         .suspendCall("get($keyID)") { it[keyID] }
         .isNotNull()
-        .prop(Keychain.Key::hashedPassword)
-        .isEqualTo(keyHashedPassword)
+        .prop(Keychain.Key::encryptedPassword)
+        .isEqualTo(keyEncryptedPassword)
     }
   }
 }
