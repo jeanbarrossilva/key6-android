@@ -317,19 +317,19 @@ abstract class Keychain {
           csprng.nextBytes(derivationSalt)
           csprng.nextBytes(cipherNonce)
           csprng.nextBytes(cipherIV)
-          val cipherKeySizeInBits = 256
-          val cipherDerivationSpec =
+          val derivationKeySizeInBits = 256
+          val derivationSpec =
             PBEKeySpec(
               mainPasswordHash.toCharArray(),
               derivationSalt,
               /* iterationCount = */ 1 shl 18,
-              cipherKeySizeInBits)
-          val cipherDerivationKey =
+              derivationKeySizeInBits)
+          val derivationKey =
             SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-              .generateSecret(cipherDerivationSpec)
+              .generateSecret(derivationSpec)
               .encoded
           val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-          val cipherKeySpec = SecretKeySpec(cipherDerivationKey, "AES")
+          val cipherKeySpec = SecretKeySpec(derivationKey, "AES")
           val cipherAuthenticationTagLengthInBits = 128
           val cipherModeSpec =
             GCMParameterSpec(cipherAuthenticationTagLengthInBits, cipherIV)
