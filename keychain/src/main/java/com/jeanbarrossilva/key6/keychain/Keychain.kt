@@ -168,26 +168,6 @@ abstract class Keychain {
     SecureRandom.getInstance("NativePRNGBlocking")
 
   /**
-   * Argon2i hasher for the main password given in plaintext, with
-   *
-   * - 2 iterations;
-   * - a 16-byte (128-bit) salt;
-   * - a 16-byte (128-bit) hash; and
-   * - a memory consumption of (potentially) 64 MiB.
-   *
-   * The amount of memory consumed will depend on memory availability: if more
-   * than 64 MiB are available, consumption will be of 64 MiB; otherwise, 15% of
-   * that available free, available memory will be consumed.
-   *
-   * @see Runtime.freeAvailableMemory
-   */
-  private val mainPasswordHasher: Argon2 =
-    Argon2Factory.create(
-      Argon2Factory.Argon2Types.ARGON2i,
-      /* defaultSaltLength = */ 16,
-      /* defaultHashLength =  */ 16)
-
-  /**
    * Keys stored into this keychain by a prior call to [store], and that have
    * not yet been removed. The string to which each of them is associated is
    * their identifier, allowing for O(1) retrievals through calls to [get].
@@ -303,16 +283,7 @@ abstract class Keychain {
   @Throws(KeychainException::class)
   protected constructor(mainPassword: String) {
     validateMainPassword(mainPassword)
-    val runtime = Runtime.getRuntime()
-    val freeAvailableMemoryInKibibytes =
-      runtime.freeAvailableMemory() / (1 shl 10)
-    mainPasswordHash =
-      mainPasswordHasher.hash(
-        /* iterations = */ 2,
-        /* memory = */ min(
-          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
-        /* parallelism = */ runtime.availableProcessors(),
-        mainPassword.toCharArray())
+    mainPasswordHash = hash(mainPassword)
   }
 
   /**
@@ -452,7 +423,29 @@ abstract class Keychain {
     lastActivityTimeInMilliseconds = System.currentTimeMillis()
   }
 
-  companion object {
+  private companion object {
+    /**
+     * Argon2i hasher for the main password given in plaintext, with
+     *
+     * - 2 iterations;
+     * - a 16-byte (128-bit) salt;
+     * - a 16-byte (128-bit) hash; and
+     * - a memory consumption of (potentially) 64 MiB.
+     *
+     * The amount of memory consumed will depend on memory availability: if more
+     * than 64 MiB are available, consumption will be of 64 MiB; otherwise, 15%
+     * of that available free, available memory will be consumed.
+     *
+     * @see hash
+     * @see Runtime.freeAvailableMemory
+     */
+    @JvmStatic
+    val mainPasswordHasher: Argon2 =
+      Argon2Factory.create(
+        Argon2Factory.Argon2Types.ARGON2i,
+        /* defaultSaltLength = */ 16,
+        /* defaultHashLength =  */ 16)
+
     /**
      * Ensures that the main password given when instantiating some type of
      * keychain is minimally secure. There are some rules that a main password
@@ -468,7 +461,7 @@ abstract class Keychain {
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    private fun validateMainPassword(mainPassword: String) {
+    fun validateMainPassword(mainPassword: String) {
       val areMostCharactersWhitespaces = {
         mainPassword.findConsecutions(Char::isWhitespace).any {
           it.count >= mainPassword.length / 2
@@ -476,6 +469,31 @@ abstract class Keychain {
       }
       if (mainPassword.length < 8 || areMostCharactersWhitespaces())
         throw KeychainException.ShortMainPassword()
+    }
+
+    /**
+     * Hashes the main password of this keychain using the Argon2i function.
+     *
+     * Because this function hashes, the password itself becomes (practically)
+     * unrecoverable—hence it being a parameter. Storing it in the keychain
+     * would allocate it on the heap rather than the stack, possibly allowing
+     * for other processes to read it.
+     *
+     * @param mainPassword The password for unlocking this keychain.
+     * @return A hash of the given password.
+     * @see Runtime.freeAvailableMemory
+     */
+    @JvmStatic
+    fun hash(mainPassword: String): String {
+      val runtime = Runtime.getRuntime()
+      val freeAvailableMemoryInKibibytes =
+        runtime.freeAvailableMemory() / (1 shl 10)
+      return mainPasswordHasher.hash(
+        /* iterations = */ 2,
+        /* memory = */ min(
+          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
+        /* parallelism = */ runtime.availableProcessors(),
+        mainPassword.toCharArray())
     }
   }
 }
