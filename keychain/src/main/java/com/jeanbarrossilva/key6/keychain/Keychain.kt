@@ -148,10 +148,6 @@ abstract class Keychain {
   var maxUnlockAttemptCount = 3
 
   /** Argon2i hash of the main password of this keychain. */
-
-  // TODO: Not store the hash in the heap, as doing so may expose it to other
-  //  processes. Rather, request the password on demand, and verify it through
-  //  the Argon2i function itself.
   protected val mainPasswordHash: String
 
   /**
