@@ -24,6 +24,7 @@ import assertk.assertFailure
 import assertk.assertThat
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
+import assertk.assertions.isNotEqualTo
 import assertk.assertions.isNotNull
 import assertk.assertions.isNull
 import assertk.assertions.isTrue
@@ -47,14 +48,14 @@ import org.junit.runners.Suite
 class KeychainTests {
   @Test
   fun removesKey() {
-    val keychain = UnsecureKeychain.withRandomMainPassword()
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        plainPassword = "123",
-        path = null)
+    val keychain = FakeKeychain.withRandomMainPassword()
     runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          plainPassword = "123",
+          path = null)
       keychain.remove(keyID)
       assertThat(keychain).suspendCall("get($keyID)") { it[keyID] }.isNull()
     }
@@ -73,17 +74,17 @@ class KeychainInstantiationTests {
   @Parameters("", " ")
   @Test
   fun throwsIfInstantiatingWithBlankMainPassword(mainPassword: String) {
-    assertFailure { UnsecureKeychain.withMainPassword(mainPassword) }
+    assertFailure { FakeKeychain.withMainPassword(mainPassword) }
   }
 
   @Test
   fun throwsIfInstantiatingWithMainPasswordWithLessThanEightCharacters() {
-    assertFailure { UnsecureKeychain.withMainPassword("1234567") }
+    assertFailure { FakeKeychain.withMainPassword("1234567") }
   }
 
   @Test
   fun throwsIfInstantiatingWithMainPasswordWithMostlyWhitespaces() {
-    assertFailure { UnsecureKeychain.withMainPassword("1   2") }
+    assertFailure { FakeKeychain.withMainPassword("1   2") }
   }
 }
 
@@ -91,15 +92,17 @@ class KeychainInstantiationTests {
 class KeychainKeyStorageTests {
   @Test
   fun throwsIfStoringUntitledKey() {
-    val keychain = UnsecureKeychain.withRandomMainPassword()
-    assertFailure {
-        keychain.store(
-          title = "",
-          login = "john@appleseed.com",
-          plainPassword = "123",
-          path = null)
-      }
-      .isInstanceOf<Keychain.KeyException.Untitled>()
+    val keychain = FakeKeychain.withRandomMainPassword()
+    runTest {
+      assertFailure {
+          keychain.store(
+            title = "",
+            login = "john@appleseed.com",
+            plainPassword = "123",
+            path = null)
+        }
+        .isInstanceOf<Keychain.KeyException.Untitled>()
+    }
   }
 
   @Parameters("Lowest,, ", "Lowest, ,", "Mid,, ", "Mid, ,")
@@ -110,33 +113,38 @@ class KeychainKeyStorageTests {
     password: String
   ) {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(
+      FakeKeychain.withRandomMainPassword(
         UnlockAttemptRate.valueOf(unlockAttemptRateName))
-    assertFailure {
-        keychain.store(title = "Lorem ipsum", login, password, path = null)
-      }
-      .isInstanceOf<Keychain.KeyException.Insufficient>()
+    runTest {
+      assertFailure {
+          keychain.store(title = "Lorem ipsum", login, password, path = null)
+        }
+        .isInstanceOf<Keychain.KeyException.Insufficient>()
+    }
   }
 
   @Parameters("Lowest", "Mid")
   @Test
   fun storesKey(unlockAttemptRateName: String) {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(
+      FakeKeychain.withRandomMainPassword(
         UnlockAttemptRate.valueOf(unlockAttemptRateName))
     val keyTitle = "Lorem ipsum"
     val keyLogin = "john@appleseed.com"
     val keyPlainPassword = "123"
-    val keyEncryptedPassword = keychain.encrypt(keyPlainPassword)
     val keyPath = URI.create("https://website.com/")
-    val keyID = keychain.store(keyTitle, keyLogin, keyPlainPassword, keyPath)
     runTest {
+      val keyID = keychain.store(keyTitle, keyLogin, keyPlainPassword, keyPath)
       assertThat(keychain)
         .suspendCall("get($keyID)") { it[keyID] }
         .isNotNull()
-        .isEqualTo(
-          Keychain.Key(
-            keyID, keyTitle, keyLogin, keyEncryptedPassword, keyPath))
+        .all {
+          prop(Keychain.Key::id).isEqualTo(keyID)
+          prop(Keychain.Key::title).isEqualTo(keyTitle)
+          prop(Keychain.Key::login).isEqualTo(keyLogin)
+          prop(Keychain.Key::encryptedPassword).isNotEqualTo(keyPlainPassword)
+          prop(Keychain.Key::path).isEqualTo(keyPath)
+        }
     }
   }
 
@@ -147,15 +155,15 @@ class KeychainKeyStorageTests {
     password: String
   ) {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(
+      FakeKeychain.withRandomMainPassword(
         UnlockAttemptRate.valueOf(unlockAttemptRateName))
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        password,
-        path = null)
     runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          password,
+          path = null)
       assertThat(keychain)
         .suspendCall("get($keyID)") { it[keyID] }
         .isNotNull()
@@ -166,21 +174,20 @@ class KeychainKeyStorageTests {
 
   @Test
   fun storedKeyPasswordIsHashed() {
-    val keychain = UnsecureKeychain.withRandomMainPassword()
+    val keychain = FakeKeychain.withRandomMainPassword()
     val keyPlainPassword = "123"
-    val keyEncryptedPassword = keychain.encrypt(keyPlainPassword)
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        keyPlainPassword,
-        path = null)
     runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          keyPlainPassword,
+          path = null)
       assertThat(keychain)
         .suspendCall("get($keyID)") { it[keyID] }
         .isNotNull()
         .prop(Keychain.Key::encryptedPassword)
-        .isEqualTo(keyEncryptedPassword)
+        .isNotEqualTo(keyPlainPassword)
     }
   }
 }
@@ -188,18 +195,16 @@ class KeychainKeyStorageTests {
 class KeychainLockTests {
   @Test
   fun isLockedByDefault() {
-    val keychain =
-      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Lowest)
+    val keychain = FakeKeychain.withRandomMainPassword(UnlockAttemptRate.Lowest)
     assertThat(keychain).all {
-      prop(UnsecureKeychain::isLocked).isTrue()
-      prop(UnsecureKeychain::inactivityThreshold).isEqualTo(Duration.ZERO)
+      prop(FakeKeychain::isLocked).isTrue()
+      prop(FakeKeychain::inactivityThreshold).isEqualTo(Duration.ZERO)
     }
   }
 
   @Test
   fun throwsIfInactivityThresholdIsNegative() {
-    val keychain =
-      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Lowest)
+    val keychain = FakeKeychain.withRandomMainPassword(UnlockAttemptRate.Lowest)
     assertFailure { keychain.inactivityThreshold = (-2).milliseconds }
       .isInstanceOf<IllegalArgumentException>()
   }
@@ -207,14 +212,14 @@ class KeychainLockTests {
   @Test
   fun throwsIfCannotUnlockToReadKey() {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        plainPassword = "123",
-        path = null)
+      FakeKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
     runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          plainPassword = "123",
+          path = null)
       assertFailure { keychain[keyID] }
         .isInstanceOf<Keychain.IncorrectMainPasswordException>()
     }
@@ -223,15 +228,15 @@ class KeychainLockTests {
   @Test
   fun readsKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
+      FakeKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
     keychain.inactivityThreshold = Duration.INFINITE
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        plainPassword = "123",
-        path = null)
     runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          plainPassword = "123",
+          path = null)
       assertThat(keychain)
         .suspendCall("get($keyID)") { it[keyID] }
         .isNotNull()
@@ -243,14 +248,14 @@ class KeychainLockTests {
   @Test
   fun throwsIfCannotUnlockToRemoveKey() {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        plainPassword = "123",
-        path = null)
+      FakeKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
     runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          plainPassword = "123",
+          path = null)
       assertFailure { keychain.remove(keyID) }
         .isInstanceOf<Keychain.IncorrectMainPasswordException>()
     }
@@ -259,14 +264,16 @@ class KeychainLockTests {
   @Test
   fun removesKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
     val keychain =
-      UnsecureKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
+      FakeKeychain.withRandomMainPassword(UnlockAttemptRate.Exceeding)
     keychain.inactivityThreshold = Duration.INFINITE
-    val keyID =
-      keychain.store(
-        title = "Lorem ipsum",
-        login = "john@appleseed.com",
-        plainPassword = "123",
-        path = null)
-    runTest { keychain.remove(keyID) }
+    runTest {
+      val keyID =
+        keychain.store(
+          title = "Lorem ipsum",
+          login = "john@appleseed.com",
+          plainPassword = "123",
+          path = null)
+      keychain.remove(keyID)
+    }
   }
 }

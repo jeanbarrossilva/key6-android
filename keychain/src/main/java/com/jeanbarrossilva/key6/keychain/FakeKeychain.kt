@@ -1,43 +1,40 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
 package com.jeanbarrossilva.key6.keychain
 
-import kotlin.io.encoding.Base64
 import org.apache.commons.lang3.RandomStringUtils
 
 /**
- * Keychain for testing purposes only, as it is very, *very* basic. Stored
- * passwords are hashed by being encoded to Base64, which can be easily undone
- * by some perpetrator in production.
+ * Keychain for testing purposes only. Provides main passwords based on the
+ * given attempt rate when unlocking. For a keychain that always gives out the
+ * correct password, use the *lowest* rate.
+ *
+ * Note that, because it stores its main password in the heap, this keychain is
+ * **insecure**.
  *
  * @property mainPassword Single password for accessing every key stored into
  *   the instantiated keychain, in plaintext.
- *
- *   Note that this being a property of this class implies that the password is
- *   stored into heap memory, which is one of the security drawbacks of this
- *   type of keychain.
- *
  * @property unlockAttemptRate Determines the amount of times an incorrect main
  *   password will be provided by this keychain upon attempts to unlock it.
  */
-class UnsecureKeychain
+class FakeKeychain
 private constructor(
   private val mainPassword: String,
   private val unlockAttemptRate: UnlockAttemptRate
@@ -56,9 +53,18 @@ private constructor(
    */
   private var currentUnlockAttemptCount = 0
 
-  public override fun encrypt(plainPassword: String) =
-    Base64.encode(plainPassword.toByteArray())
-
+  /**
+   * Amount of times attempts to unlock this keychain were made in the current
+   * streak.
+   *
+   * This starts off as zero, may be incremented depending on the set attempt
+   * rate, and will be zeroed after the incorrect main password is provided by
+   * this keychain *n* times, where *n* is
+   * `unlockAttemptRate.targetCount(this)`.
+   *
+   * @see unlockAttemptRate
+   * @see UnlockAttemptRate.targetCount
+   */
   override suspend fun requestMainPassword(): String {
     if (currentUnlockAttemptCount++ < unlockAttemptRate.targetCount(this))
       return unlockAttemptRate.generateMainPassword(mainPassword)
@@ -67,9 +73,6 @@ private constructor(
       return mainPassword
     }
   }
-
-  override fun decrypt(encryptedPassword: String) =
-    Base64.decode(encryptedPassword).toString(Charsets.UTF_8)
 
   companion object {
     /**
@@ -101,7 +104,7 @@ private constructor(
     fun withMainPassword(
       mainPassword: String,
       unlockAttemptRate: UnlockAttemptRate = UnlockAttemptRate.default
-    ) = UnsecureKeychain(mainPassword, unlockAttemptRate)
+    ) = FakeKeychain(mainPassword, unlockAttemptRate)
   }
 }
 
@@ -163,7 +166,7 @@ enum class UnlockAttemptRate {
    *
    * @param keychain Keychain requested to be unlocked.
    */
-  internal fun targetCount(keychain: UnsecureKeychain) =
+  internal fun targetCount(keychain: FakeKeychain) =
     when (this) {
       Lowest -> 0
       Mid -> keychain.maxUnlockAttemptCount / 2

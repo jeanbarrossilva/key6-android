@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -22,12 +22,20 @@ package com.jeanbarrossilva.key6.keychain
 import de.mkammerer.argon2.Argon2
 import de.mkammerer.argon2.Argon2Factory
 import java.net.URI
+import java.security.SecureRandom
 import java.util.Objects
+import javax.crypto.Cipher
+import javax.crypto.SecretKeyFactory
+import javax.crypto.spec.GCMParameterSpec
+import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
 import kotlin.math.min
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Actor responsible for the main feature of Key6: storing, encrypting and
@@ -49,18 +57,6 @@ import kotlin.uuid.Uuid
  * Key6, every key identifier is a UUID v7.
  *
  * ## Creating a keychain
- *
- * Keychains of different types may differ in the cryptography employed on the
- * passwords of their keys. Some may implement secure encryption algorithms,
- * while others may rely on less secure alternatives for the sake of
- * performance; keychains like the first should be used in production, where
- * security is more important than performance, and ones such as the latter are
- * suitable for tests, in which that priority is reversed.
- *
- * Regardless of the algorithm for encrypting keys' passwords, the main password
- * of a keychain is always hashed with the
- * [Argon2](https://github.com/P-H-C/phc-winner-argon2/blob/master/argon2-specs.pdf)
- * hash function, with a memory usage overhead of 64 MiB.
  *
  * All types of keychain expose a factory method for instantiating them from a
  * main password in plaintext: `T.Companion.withMainPassword(String)`, where `T`
@@ -152,25 +148,44 @@ abstract class Keychain {
   var maxUnlockAttemptCount = 3
 
   /** Argon2i hash of the main password of this keychain. */
+
+  // TODO: Not store the hash in the heap, as doing so may expose it to other
+  //  processes. Rather, request the password on demand, and verify it through
+  //  the Argon2i function itself.
   protected val mainPasswordHash: String
+
+  /**
+   * Cryptographically-secure pseudorandom number generator (CSPRNG) of all
+   * salts and nonces of keys stored in this keychain.
+   *
+   * Randomness quality of this CSPRNG's implementation may be greater than that
+   * of others, making chances of collision negligible; this means that
+   * generation may block while waiting for entropy to increase when it is
+   * deemed low by this CSPRNG. Therefore, the salts and nonces of each key are
+   * *guaranteed* to be unique *for this keychain*.
+   */
+  private val csprng: SecureRandom =
+    SecureRandom.getInstance("NativePRNGBlocking")
 
   /**
    * Argon2i hasher for the main password given in plaintext, with
    *
    * - 2 iterations;
-   * - a 128-byte salt;
-   * - a 128-byte hash; and
-   * - a memory consumption of (potentially) 64 MB.
+   * - a 16-byte (128-bit) salt;
+   * - a 16-byte (128-bit) hash; and
+   * - a memory consumption of (potentially) 64 MiB.
    *
    * The amount of memory consumed will depend on memory availability: if more
-   * than 64 MB are available, the consumption will be of 64 MB; otherwise, 15%
-   * of that available memory will be consumed.
+   * than 64 MiB are available, consumption will be of 64 MiB; otherwise, 15% of
+   * that available free, available memory will be consumed.
+   *
+   * @see Runtime.freeAvailableMemory
    */
   private val mainPasswordHasher: Argon2 =
     Argon2Factory.create(
       Argon2Factory.Argon2Types.ARGON2i,
-      /* defaultSaltLength = */ 128,
-      /* defaultHashLength =  */ 128)
+      /* defaultSaltLength = */ 16,
+      /* defaultHashLength =  */ 16)
 
   /**
    * Keys stored into this keychain by a prior call to [store], and that have
@@ -198,57 +213,46 @@ abstract class Keychain {
    */
   private var lastActivityTimeInMilliseconds = System.currentTimeMillis()
 
-  /** Authentication metadata for a site. */
-  class Key {
-    /**
-     * Unique identifier of this key in the keychain into which it is stored.
-     */
-    val id: String
-
-    /**
-     * Display identifier of this key. This may not be unique, as it serves only
-     * for the user to distinguish one key from another; internally, rather,
-     * keys are identified by their [id].
-     */
-    val title: String
-
-    /**
-     * Primary identification of the user at the site; usually their e-mail
-     * address or username. May be empty, as sites may not demand one while
-     * still enforcing a password.
-     */
-    val login: String
-
-    /**
-     * Path to the site at which the user signed up with the given login and
-     * password. This may refer to a website, a local file (e.g., a
-     * password-protected compressed file), etc.
-     */
-    val path: URI?
-
-    /**
-     * Encrypted form of the private string defined by the user as the pair to
-     * their login (if set) for authenticating at the site. If the login has
-     * been specified, this may be empty.
-     */
+  /**
+   * Authentication metadata for a site.
+   *
+   * @property id Unique identifier of this key in the keychain into which it is
+   *   stored.
+   * @property title Trimmed display identifier of this key. This may not be
+   *   unique, as it serves only for the user to distinguish one key from
+   *   another; internally, rather, keys are identified by their [id].
+   * @property login Trimmed primary identification of the user at the site;
+   *   usually their e-mail address or username. May be empty, as sites may not
+   *   demand one while still enforcing a password.
+   * @property path Path to the site at which the user signed up with the given
+   *   login and password. This may refer to a website, a local file (e.g., a
+   *   password-protected compressed file), etc.
+   * @property salt Random 16-byte (128-bit) array generated for deriving the
+   *   encrypted password of this key via PBKDF2. Prevents other keys with the
+   *   same password from having the same encrypted password.
+   * @property nonce Random 12-byte (96-bit) array passed into the AES-GCM
+   *   cipher alongside this key's encrypted password. Prevents an attacker,
+   *   having eavesdropped the exchange between the keychain and this keychain
+   *   key…
+   * @property encryptedPassword Encrypted form of the private string defined by
+   *   the user as the pair to their login (if set) for authenticating at the
+   *   site. If the login has been specified, this may be empty.
+   */
+  class Key
+  @Throws(KeyException::class)
+  internal constructor(
+    val id: String,
+    val title: String,
+    val login: String,
+    val path: URI?,
+    internal val salt: ByteArray,
+    internal val nonce: ByteArray,
     internal val encryptedPassword: String
-
-    @Throws(KeyException::class)
-    internal constructor(
-      id: String,
-      title: String,
-      login: String,
-      encryptedPassword: String,
-      path: URI?
-    ) {
-      this.title = title.trim()
-      this.login = login.trim()
-      if (this.title.isEmpty()) throw KeyException.Untitled()
-      if (this.login.isEmpty() && encryptedPassword.isBlank())
+  ) {
+    init {
+      if (title.isEmpty()) throw KeyException.Untitled()
+      if (login.isEmpty() && encryptedPassword.isBlank())
         throw KeyException.Insufficient()
-      this.encryptedPassword = encryptedPassword
-      this.id = id
-      this.path = path
     }
 
     override fun equals(other: Any?) =
@@ -300,10 +304,13 @@ abstract class Keychain {
   protected constructor(mainPassword: String) {
     validateMainPassword(mainPassword)
     val runtime = Runtime.getRuntime()
+    val freeAvailableMemoryInKibibytes =
+      runtime.freeAvailableMemory() / (1 shl 10)
     mainPasswordHash =
       mainPasswordHasher.hash(
         /* iterations = */ 2,
-        /* memory = */ min((runtime.freeMemory() * .15).toInt(), 1 shl 16),
+        /* memory = */ min(
+          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
         /* parallelism = */ runtime.availableProcessors(),
         mainPassword.toCharArray())
   }
@@ -326,16 +333,54 @@ abstract class Keychain {
    * @return The identifier generated for the stored key.
    */
   @Throws(KeyException::class, RuntimeException::class)
-  fun store(
+  suspend fun store(
     title: String,
     login: String,
     plainPassword: String,
     path: URI?
   ): String {
     val id = Uuid.generateV7().toString()
-    val encryptedPassword = encrypt(plainPassword)
-    storage[id] = Key(id, title, login, encryptedPassword, path)
-    return id
+    val derivationSalt = ByteArray(size = 16)
+    val cipherNonce = ByteArray(size = 12)
+    val encryptedPassword =
+      if (plainPassword.isBlank()) ""
+      else {
+        withContext(Dispatchers.IO) {
+          val cipherIV = ByteArray(size = 12)
+          csprng.nextBytes(derivationSalt)
+          csprng.nextBytes(cipherNonce)
+          csprng.nextBytes(cipherIV)
+          val cipherKeySizeInBits = 256
+          val cipherDerivationSpec =
+            PBEKeySpec(
+              mainPasswordHash.toCharArray(),
+              derivationSalt,
+              /* iterationCount = */ 1 shl 18,
+              cipherKeySizeInBits)
+          val cipherDerivationKey =
+            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+              .generateSecret(cipherDerivationSpec)
+              .encoded
+          val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+          val cipherKeySpec = SecretKeySpec(cipherDerivationKey, "AES")
+          val cipherAuthenticationTagLengthInBits = 128
+          val cipherModeSpec =
+            GCMParameterSpec(cipherAuthenticationTagLengthInBits, cipherIV)
+          cipher.init(Cipher.ENCRYPT_MODE, cipherKeySpec, cipherModeSpec)
+          cipher.doFinal().toHexString()
+        }
+      }
+    val key =
+      Key(
+        id,
+        title.trim(),
+        login.trim(),
+        path,
+        derivationSalt,
+        cipherNonce,
+        encryptedPassword)
+    storage[key.id] = key
+    return key.id
   }
 
   /**
@@ -348,25 +393,6 @@ abstract class Keychain {
    *   not be the owner of this keychain.
    */
   protected abstract suspend fun requestMainPassword(): String
-
-  /**
-   * Encrypts the plain password of a key being stored, using the algorithm
-   * specific to this implementation.
-   *
-   * @param plainPassword Some password in plaintext.
-   */
-  protected abstract fun encrypt(plainPassword: String): String
-
-  /**
-   * Undoes the encryption performed by a previous call to [encrypt] on the
-   * given password. By definition, for some password *x* in plaintext,
-   *
-   * - `encrypt(x)` = [encryptedPassword]; and
-   * - `decrypt(encryptedPassword)` = *x*.
-   *
-   * @param encryptedPassword Password encrypted by this keychain.
-   */
-  protected abstract fun decrypt(encryptedPassword: String): String
 
   /**
    * Retrieves a key previously stored into this keychain.

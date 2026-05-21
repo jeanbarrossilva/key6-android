@@ -29,7 +29,8 @@ assertk = { group = 'com.willowtreeapps.assertk', name = 'assertk', version.ref 
 assertk-coroutines = { group = 'com.willowtreeapps.assertk', name = 'assertk-coroutines', version.ref = 'assertk' }
 jUnit = { group = 'junit', name = 'junit', version = '4.13.2' }
 jUnitParams = { group = 'pl.pragmatists', name = 'JUnitParams', version = '1.1.1' }
-kotlin-coroutines-test = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coroutines-test', version = '1.11.0' }
+kotlin-coroutines-core = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coroutines-core', version.ref = 'kotlin-coroutines' }
+kotlin-coroutines-test = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coroutines-test', version.ref = 'kotlin-coroutines' }
 material = { group = 'com.google.android.material', name = 'material', version = '1.13.0' }
 tomlJ = { group = 'org.tomlj', name = 'tomlj', version = '1.1.1' }
 
@@ -44,3 +45,4 @@ android-navigation = '2.9.8'
 android-sdk-min = '29'
 android-sdk-target = '36'
 assertk = '0.28.1'
+kotlin-coroutines = '1.11.0'
