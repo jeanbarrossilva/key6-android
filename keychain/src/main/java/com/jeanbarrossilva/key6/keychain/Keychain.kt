@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -34,8 +34,6 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * Actor responsible for the main feature of Key6: storing, encrypting and
@@ -151,17 +149,40 @@ abstract class Keychain {
   protected val mainPasswordHash: String
 
   /**
-   * Cryptographically-secure pseudorandom number generator (CSPRNG) of all
-   * salts and nonces of keys stored in this keychain.
+   * Non-blocking, cryptographically-secure pseudorandom number generator
+   * (CSPRNG) of all salts and nonces of keys stored in this keychain.
    *
-   * Randomness quality of this CSPRNG's implementation may be greater than that
-   * of others, making chances of collision negligible; this means that
-   * generation may block while waiting for entropy to increase when it is
-   * deemed low by this CSPRNG. Therefore, the salts and nonces of each key are
-   * *guaranteed* to be unique *for this keychain*.
+   * ## On blocking vs non-blocking CSPRNGs
+   *
+   * Often, whether `/dev/urandom` should be preferred over `/dev/random` in
+   * Unix-like systems is debated. The first does not wait for entropy to
+   * increase; rather, it returns a random number immediately. Meanwhile, the
+   * second does block the thread until enough environmental noise is gathered.
+   * With this explanation on its own, it would seem that the first one is the
+   * better, i.e., more secure approach, and that the second results in a "less"
+   * random number.
+   *
+   * However, consider that the "pseudo" in "pseudorandom number generator"
+   * means that it is "computationally random"; and that this, in turn, denotes
+   * not that numbers *will* be random (as those of a *truly* random number
+   * generator), but that they will be *unpredictable*: attempting to guess the
+   * next one beforehand is unfeasible for modern-day computers.
+   *
+   * Besides, ciphers themselves are cracked more often than pseudorandom
+   * numbers are guessed; and if the cipher has a vulnerability, whether that
+   * number is predictable or not becomes redundant.
+   *
+   * ## References
+   *
+   * - Almaraz Luengo, E., & Román Villaizán, J. (2023). Cryptographically
+   *   Secured Pseudo-Random Number Generators: Analysis and Testing with NIST
+   *   Statistical Test Suite. *Mathematics*, 11(23), 4812.
+   *   https://doi.org/10.3390/math11234812
+   * - Huehn, T. (2014, March 7). Myths about /dev/urandom. *Thomas Huehn*.
+   *   https://www.thomas-huehn.com/myths-about-urandom
    */
   private val csprng: SecureRandom =
-    SecureRandom.getInstance("NativePRNGBlocking")
+    SecureRandom.getInstance("NativePRNGNonBlocking")
 
   /**
    * Keys stored into this keychain by a prior call to [store], and that have
@@ -300,7 +321,7 @@ abstract class Keychain {
    * @return The identifier generated for the stored key.
    */
   @Throws(KeyException::class, RuntimeException::class)
-  suspend fun store(
+  fun store(
     title: String,
     login: String,
     plainPassword: String,
@@ -312,30 +333,28 @@ abstract class Keychain {
     val encryptedPassword =
       if (plainPassword.isBlank()) ""
       else {
-        withContext(Dispatchers.IO) {
-          val cipherIV = ByteArray(size = 12)
-          csprng.nextBytes(derivationSalt)
-          csprng.nextBytes(cipherNonce)
-          csprng.nextBytes(cipherIV)
-          val derivationKeySizeInBits = 256
-          val derivationSpec =
-            PBEKeySpec(
-              mainPasswordHash.toCharArray(),
-              derivationSalt,
-              /* iterationCount = */ 1 shl 18,
-              derivationKeySizeInBits)
-          val derivationKey =
-            SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-              .generateSecret(derivationSpec)
-              .encoded
-          val cipher = Cipher.getInstance("AES/GCM/NoPadding")
-          val cipherKeySpec = SecretKeySpec(derivationKey, "AES")
-          val cipherAuthenticationTagLengthInBits = 128
-          val cipherModeSpec =
-            GCMParameterSpec(cipherAuthenticationTagLengthInBits, cipherIV)
-          cipher.init(Cipher.ENCRYPT_MODE, cipherKeySpec, cipherModeSpec)
-          cipher.doFinal().toHexString()
-        }
+        val cipherIV = ByteArray(size = 12)
+        csprng.nextBytes(derivationSalt)
+        csprng.nextBytes(cipherNonce)
+        csprng.nextBytes(cipherIV)
+        val derivationKeySizeInBits = 256
+        val derivationSpec =
+          PBEKeySpec(
+            mainPasswordHash.toCharArray(),
+            derivationSalt,
+            /* iterationCount = */ 1 shl 18,
+            derivationKeySizeInBits)
+        val derivationKey =
+          SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+            .generateSecret(derivationSpec)
+            .encoded
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        val cipherKeySpec = SecretKeySpec(derivationKey, "AES")
+        val cipherAuthenticationTagLengthInBits = 128
+        val cipherModeSpec =
+          GCMParameterSpec(cipherAuthenticationTagLengthInBits, cipherIV)
+        cipher.init(Cipher.ENCRYPT_MODE, cipherKeySpec, cipherModeSpec)
+        cipher.doFinal().toHexString()
       }
     val key =
       Key(
