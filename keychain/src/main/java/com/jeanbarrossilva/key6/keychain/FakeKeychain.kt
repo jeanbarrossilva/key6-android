@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -31,14 +31,15 @@ import org.apache.commons.lang3.RandomStringUtils
  *
  * @property mainPassword Single password for accessing every key stored into
  *   the instantiated keychain, in plaintext.
- * @property unlockAttemptRate Determines the amount of times an incorrect main
- *   password will be provided by this keychain upon attempts to unlock it.
  */
 class FakeKeychain
-private constructor(
-  private val mainPassword: String,
-  private val unlockAttemptRate: UnlockAttemptRate
-) : Keychain(mainPassword) {
+private constructor(private val mainPassword: String) : Keychain(mainPassword) {
+  /**
+   * Determines the amount of times an incorrect main password will be provided
+   * by this keychain upon attempts to unlock it.
+   */
+  private var unlockAttemptRate = UnlockAttemptRate.default
+
   /**
    * Amount of times attempts to unlock this keychain were made in the current
    * streak.
@@ -74,18 +75,22 @@ private constructor(
     }
   }
 
+  /**
+   * Changes the unlock attempt rate of this keychain, which determines the
+   * amount of times an incorrect main password will be provided by this
+   * keychain upon attempts to unlock it.
+   *
+   * @param unlockAttemptRate The new unlock attempt rate of this keychain.
+   */
+  fun setUnlockAttemptRate(unlockAttemptRate: UnlockAttemptRate) {
+    this.unlockAttemptRate = unlockAttemptRate
+  }
+
   companion object {
-    /**
-     * Instantiates an unsecure keychain with a pseudorandom main password.
-     *
-     * @param unlockAttemptRate Determines the amount of times an incorrect main
-     *   password will be provided by this keychain upon attempts to unlock it.
-     */
+    /** Instantiates an unsecure keychain with a pseudorandom main password. */
     @JvmStatic
-    fun withRandomMainPassword(
-      unlockAttemptRate: UnlockAttemptRate = UnlockAttemptRate.default
-    ) =
-      withMainPassword(RandomStringUtils.insecure().next(8), unlockAttemptRate)
+    fun withRandomMainPassword() =
+      withMainPassword(RandomStringUtils.insecure().next(8))
 
     /**
      * Instantiates this type of keychain with its main password specified in
@@ -96,15 +101,11 @@ private constructor(
      *
      * @param mainPassword Single password for accessing every key stored into
      *   the instantiated keychain, in plaintext.
-     * @param unlockAttemptRate Determines the amount of times an incorrect main
-     *   password will be provided by this keychain upon attempts to unlock it.
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun withMainPassword(
-      mainPassword: String,
-      unlockAttemptRate: UnlockAttemptRate = UnlockAttemptRate.default
-    ) = FakeKeychain(mainPassword, unlockAttemptRate)
+    fun withMainPassword(mainPassword: String) =
+      FakeKeychain(mainPassword)
   }
 }
 

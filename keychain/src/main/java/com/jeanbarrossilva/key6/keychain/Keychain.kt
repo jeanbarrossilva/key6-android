@@ -29,6 +29,7 @@ import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
+import kotlin.io.encoding.Base64
 import kotlin.math.min
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
@@ -321,7 +322,7 @@ abstract class Keychain {
    * @return The identifier generated for the stored key.
    */
   @Throws(KeyException::class, RuntimeException::class)
-  fun store(
+  suspend fun store(
     title: String,
     login: String,
     plainPassword: String,
@@ -333,28 +334,33 @@ abstract class Keychain {
     val encryptedPassword =
       if (plainPassword.isBlank()) ""
       else {
-        val cipherIV = ByteArray(size = 12)
+        val requestedMainPasswordCharacters =
+          requestMainPassword().toCharArray()
         csprng.nextBytes(derivationSalt)
         csprng.nextBytes(cipherNonce)
-        csprng.nextBytes(cipherIV)
         val derivationKeySizeInBits = 256
-        val derivationSpec =
+        val derivationKeySpec =
           PBEKeySpec(
-            mainPasswordHash.toCharArray(),
+            requestedMainPasswordCharacters,
             derivationSalt,
-            /* iterationCount = */ 1 shl 18,
+            /* iterationCount = */ 1 shl 20,
             derivationKeySizeInBits)
+        requestedMainPasswordCharacters.fill('\u0000')
         val derivationKey =
           SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
-            .generateSecret(derivationSpec)
+            .generateSecret(derivationKeySpec)
             .encoded
+        derivationKeySpec.clearPassword()
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val cipherKeySpec = SecretKeySpec(derivationKey, "AES")
+        derivationKey.fill(0)
         val cipherAuthenticationTagLengthInBits = 128
         val cipherModeSpec =
-          GCMParameterSpec(cipherAuthenticationTagLengthInBits, cipherIV)
+          GCMParameterSpec(cipherAuthenticationTagLengthInBits, cipherNonce)
         cipher.init(Cipher.ENCRYPT_MODE, cipherKeySpec, cipherModeSpec)
-        cipher.doFinal().toHexString()
+        val encryptedPasswordInBytes =
+          cipher.doFinal(plainPassword.toByteArray())
+        Base64.encode(encryptedPasswordInBytes)
       }
     val key =
       Key(
