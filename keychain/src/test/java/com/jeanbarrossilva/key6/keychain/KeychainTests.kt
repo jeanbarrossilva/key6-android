@@ -60,7 +60,7 @@ class KeychainTests {
           plainPassword = "123",
           path = null)
       keychain.remove(keyID)
-      assertThat(keychain).suspendCall("get($keyID)") { it[keyID] }.isNull()
+      assertThat(keychain).transform("get($keyID)") { it[keyID] }.isNull()
     }
   }
 }
@@ -139,7 +139,7 @@ class KeychainKeyStorageTests {
     runTest {
       val keyID = keychain.store(keyTitle, keyLogin, keyPlainPassword, keyPath)
       assertThat(keychain)
-        .suspendCall("get($keyID)") { it[keyID] }
+        .transform("get($keyID)") { it[keyID] }
         .isNotNull()
         .all {
           prop(Keychain.Key::id).isEqualTo(keyID)
@@ -168,7 +168,7 @@ class KeychainKeyStorageTests {
           password,
           path = null)
       assertThat(keychain)
-        .suspendCall("get($keyID)") { it[keyID] }
+        .transform("get($keyID)") { it[keyID] }
         .isNotNull()
         .prop(Keychain.Key::id)
         .isEqualTo(keyID)
@@ -187,7 +187,7 @@ class KeychainKeyStorageTests {
           keyPlainPassword,
           path = null)
       assertThat(keychain)
-        .suspendCall("get($keyID)") { it[keyID] }
+        .transform("get($keyID)") { it[keyID] }
         .isNotNull()
         .prop(Keychain.Key::encryptedPassword)
         .isNotEqualTo(keyPlainPassword)
@@ -249,22 +249,6 @@ class KeychainLockTests {
   }
 
   @Test
-  fun throwsIfCannotUnlockToReadKey() {
-    val keychain = FakeKeychain.withRandomMainPassword()
-    runTest {
-      val keyID =
-        keychain.store(
-          title = "Lorem ipsum",
-          login = "john@appleseed.com",
-          plainPassword = "123",
-          path = null)
-      keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
-      assertFailure { keychain[keyID] }
-        .isInstanceOf<Keychain.IncorrectMainPasswordException>()
-    }
-  }
-
-  @Test
   fun readsKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
     val keychain = FakeKeychain.withRandomMainPassword()
     keychain.inactivityThreshold = Duration.INFINITE
@@ -277,7 +261,7 @@ class KeychainLockTests {
           path = null)
       keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
       assertThat(keychain)
-        .suspendCall("get($keyID)") { it[keyID] }
+        .transform("get($keyID)") { it[keyID] }
         .isNotNull()
         .prop(Keychain.Key::id)
         .isEqualTo(keyID)

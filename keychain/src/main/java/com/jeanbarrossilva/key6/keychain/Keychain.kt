@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -78,7 +78,7 @@ import kotlin.uuid.Uuid
  * unlock the keychain and decrypt passwords stored into it. The keychain *may*
  * require an unlock when
  *
- * - reading one of its keys; and
+ * - reading the password of one of its keys; and
  * - removing one of its keys.
  *
  * The main password of the keychain *may* be requested, with a leniency of
@@ -89,9 +89,12 @@ import kotlin.uuid.Uuid
  *
  * The main password *will not* be requested, however, if the time passed since
  * the keychain was last active does not exceed its [inactivityThreshold]; in
- * such a scenario, the reading and removal of keys will return immediately.
- * This threshold starts off zeroed: by default, these operations *will* require
- * the main password, always.
+ * such a scenario, the removal of keys and reading of passwords will return
+ * immediately. This threshold starts off zeroed: by default, these operations
+ * *will* require the main password, always.
+ *
+ * @see remove
+ * @see getPassword
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class Keychain {
@@ -99,12 +102,13 @@ abstract class Keychain {
    * Whether this keychain has not been unlocked in the last *n* milliseconds,
    * where *n* is the amount of milliseconds in the [inactivityThreshold].
    *
-   * When this is `true`, it is guaranteed that the next reading or removal of a
-   * key *will*, first, require that the main password be provided in plaintext.
-   * Otherwise, these operations will be performed without any restriction.
+   * When this is `true`, it is guaranteed that the next removal of a key or
+   * reading of its password *will*, first, require that the main password be
+   * provided in plaintext. Otherwise, these operations will be performed
+   * without any restriction.
    *
-   * @see get
    * @see remove
+   * @see getPassword
    */
   val isLocked
     get() =
@@ -118,11 +122,13 @@ abstract class Keychain {
    * Starts off zeroed, but may be changed by the user later.
    *
    * This is guaranteed to be ≥ [Duration.ZERO], where being zeroed denotes that
-   * the main password will be requested at each reading or removal of keys.
-   * Trying to define it as some negative duration will result in an exception
-   * being thrown.
+   * the main password will be requested at each removal of keys or reading of
+   * their password. Trying to define it as some negative duration will result
+   * in an exception being thrown.
    *
    * @see isLocked
+   * @see remove
+   * @see getPassword
    */
   var inactivityThreshold
     get() =
@@ -140,8 +146,10 @@ abstract class Keychain {
   /**
    * Maximum, positive amount of times an incorrect main password may be
    * provided when trying to unlock this keychain. Upon requesting an operation
-   * that requires an unlock (e.g., obtaining a key) and failing more than the
-   * amount defined here, an exception will be thrown.
+   * that requires an unlock (e.g., reading the password of a key) and failing
+   * more than the amount defined here, an exception will be thrown.
+   *
+   * @see getPassword
    */
   var maxUnlockAttemptCount = 3
     set(maxUnlockAttemptCount) {
@@ -203,16 +211,17 @@ abstract class Keychain {
    * locked. Starts off as zero, but may be changed by the user later.
    *
    * This is guaranteed to be ≥ 0, where being 0 denotes that the main password
-   * will be requested at each reading or removal of keys.
+   * will be requested at each removal of keys or reading of their password.
    *
    * @see isLocked
    */
   private var inactivityThresholdInMilliseconds = 0L
 
   /**
-   * Unix epoch in which an operation (such as reading or removing a key) was
-   * last performed by this keychain. By default, represents the time in which
-   * the system was when this keychain was instantiated.
+   * Time since the Unix epoch, in milliseconds, in which an operation (such as
+   * removing a key or reading its password) was last performed by this
+   * keychain. By default, represents the time in which the system was when this
+   * keychain was instantiated.
    */
   private var lastActivityTimeInMilliseconds = System.currentTimeMillis()
 
@@ -373,10 +382,7 @@ abstract class Keychain {
    *   the moment.
    */
   @Throws(IncorrectMainPasswordException::class)
-  suspend operator fun get(keyID: String): Key? {
-    if (isLocked) unlock()
-    return storage[keyID]
-  }
+  operator fun get(keyID: String) = storage[keyID]
 
   /**
    * Obtains the password of the specified key, undoing the encryption performed
@@ -497,7 +503,7 @@ abstract class Keychain {
   /**
    * Requests that this keychain be unlocked (if locked) by having its main
    * password provided in plaintext. Essential for operations that require
-   * maximum security, such as reading some key.
+   * maximum security, such as obtaining the password of some key.
    *
    * Up to [maxUnlockAttemptCount] attempts of providing the correct main
    * password may be made. In case the user fails at that, this method will
@@ -505,6 +511,7 @@ abstract class Keychain {
    *
    * @return The provided, correct main password.
    * @see requestMainPassword
+   * @see getPassword
    */
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlock(): String {
