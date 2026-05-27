@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -37,10 +37,10 @@ import kotlin.uuid.Uuid
 
 /**
  * Actor responsible for the main feature of Key6: storing, encrypting and
- * retrieving authentication information of the user at various sites. Besides
- * securing these data, allows for generating random passwords with custom
- * constraints and, consequently, providing greater safety against attacks
- * targeting these sites.
+ * retrieving authentication information of the user at various sites locally.
+ * Besides securing these data, allows for generating random passwords with
+ * custom constraints and, consequently, providing greater safety against
+ * attacks targeting these sites.
  *
  * Sites are referred to throughout this entire documentation. Sites are files
  * or services accessible via a login and/or a password. Despite their name,
@@ -75,11 +75,11 @@ import kotlin.uuid.Uuid
  *
  * To achieve this goal, keychains require a single, main password. This
  * password is the only one the user needs to remember, and will be used to
- * unlock the keychain and decrypt passwords stored into it. The keychain *may*
+ * unlock the keychain and read passwords stored in it. The keychain *may*
  * require an unlock when
  *
- * - reading the password of one of its keys; and
- * - removing one of its keys.
+ * 1. reading the password of one of its keys; and
+ * 2. removing one of its keys.
  *
  * The main password of the keychain *may* be requested, with a leniency of
  * [maxUnlockAttemptCount] attempts for the correct password to be provided; in
@@ -92,6 +92,76 @@ import kotlin.uuid.Uuid
  * such a scenario, the removal of keys and reading of passwords will return
  * immediately. This threshold starts off zeroed: by default, these operations
  * *will* require the main password, always.
+ *
+ * ## Security of stored keys
+ *
+ * The password of every key stored in a keychain goes through various security
+ * layers, ensuring that no one—except for its keys' keychain—is able to read
+ * it, since passing through these layers is unfeasible for modern hardware.
+ * There are 4 (four) layers:
+ *
+ * ### Main-password hashing
+ *
+ * The main password of the keychain is hashed upon instantiation, using the
+ * Argon2i function; given a random **16-byte (128-bit) salt**, **2 iterations**
+ * are performed, resulting in a **16-byte (128-bit) hash**.
+ *
+ * Argon2 is a *memory-hard function*: it consumes as much memory as possible
+ * when hashing, preventing attackers from cracking passwords with rainbow table
+ * or dictionary attacks, in which attempts to guess the main password would be
+ * made by feeding the keychain with precomputed or known passwords gathered
+ * from data breaches. Because these attackers may take advantage of specialized
+ * hardware (e.g., FPGAs), the aforementioned salt is insufficient by itself.
+ * Therefore, in Key6, *at most* **64 MiB** will be consumed.
+ *
+ * ## Locking
+ *
+ * As discussed, the keychain remains unlocked for the amount of milliseconds in
+ * [inactivityThreshold] since the last unlock, with such value zeroed by
+ * default for maximum security. Despite this threshold, the keychain will
+ * *always* request that its main password be provided when storing a key.
+ * Besides preventing an unauthorized user from changing the keychain, doing so
+ * allows for deriving a passphrase in the next layer from the main password
+ * (rather than from its hash, already known by the keychain).
+ *
+ * Similarly, reading the password of a key, i.e., calling [getPassword], will
+ * require an unlock when this keychain is inactive.
+ *
+ * ## Passphrase derivation
+ *
+ * The first step of the process of encrypting the password of a key is
+ * generating a master key with the PBKDF2 hash function from the main password.
+ * As to not confuse such *master* key with *keychain* keys, the term
+ * "passphrase" is adopted.
+ *
+ * 2²¹ = 2,097,152 iterations are performed, an amount significantly greater
+ * than that of other password managers (such as 1Password, which, as of their
+ * 0.5.2 release, iterates "only" 650,000 times).
+ *
+ * The passphrase is *never* stored in the heap; rather, it always gets derived
+ * again each time some key is stored in the keychain or the password of a
+ * stored key is read.
+ *
+ * ## Passphrase encryption/decryption
+ *
+ * Upon storing a key in the keychain, the passphrase derived in the previous
+ * step is passed into the AES-256-GCM cipher as the AES key. The encryption,
+ * with a 12-byte (96-bit) nonce and a 16-byte (128-bit) tag, outputs a 32-byte
+ * (256-bit) ciphertext.
+ *
+ * ## References
+ *
+ * - Schlawack, H. (2015). Choosing Parameters. *argon2-cffi 25.1.0
+ *   documentation*.
+ *   https://argon2-cffi.readthedocs.io/en/stable/parameters.html;
+ * - A. Biryukov, D. Dinu & D. Khovratovich. (2016). *Argon2: New Generation of
+ *   Memory-Hard Functions for Password Hashing and Other Applications*. 2016
+ *   IEEE European Symposium on Security and Privacy (EuroS&P), Saarbruecken,
+ *   Germany, pp. 292-302;
+ * - Turan, M.S., Barker, E.B., Burr, W.E., & Chen, L. (2010). *Recommendation
+ *   for Password-Based Key Derivation; Part 1: Storage Applications*; and
+ * - 1Password. (2026, March 5). *1Password Security Design White Paper*.
+ *   https://agilebits.github.io/security-design.
  *
  * @see remove
  * @see getPassword
@@ -188,11 +258,11 @@ abstract class Keychain {
    *
    * ## References
    *
-   * - Almaraz Luengo, E., & Román Villaizán, J. (2023). Cryptographically
+   * - Almaraz Luengo, E., & Román Villaizán, J. (2023). *Cryptographically
    *   Secured Pseudo-Random Number Generators: Analysis and Testing with NIST
-   *   Statistical Test Suite. *Mathematics*, 11(23), 4812.
+   *   Statistical Test Suite*. Mathematics, 11(23), 4812.
    *   https://doi.org/10.3390/math11234812; and
-   * - Huehn, T. (2014, March 7). Myths about /dev/urandom. *Thomas Huehn*.
+   * - Huehn, T. (2014, March 7). *Myths about /dev/urandom*. Thomas Huehn.
    *   https://www.thomas-huehn.com/myths-about-urandom.
    */
   private val csprng: SecureRandom =
@@ -242,10 +312,9 @@ abstract class Keychain {
    * @property salt Random 16-byte (128-bit) array generated for deriving the
    *   encrypted password of this key via PBKDF2. Prevents other keys with the
    *   same password from having the same encrypted password.
-   * @property nonce Random 12-byte (96-bit) array passed into the AES-GCM
-   *   cipher alongside this key's encrypted password. Prevents an attacker,
-   *   having eavesdropped the exchange between the keychain and this keychain
-   *   key…
+   * @property iv Random 12-byte (96-bit) array passed into the AES-GCM cipher
+   *   alongside this key's encrypted password. Prevents an attacker, having
+   *   eavesdropped the exchange between the keychain and this keychain key…
    * @property encryptedPassword Encrypted form of the private string defined by
    *   the user as the pair to their login (if set) for authenticating at the
    *   site. If the login has been specified, this may be empty.
@@ -258,7 +327,7 @@ abstract class Keychain {
     val login: String,
     val path: URI?,
     internal val salt: ByteArray,
-    internal val nonce: ByteArray,
+    internal val iv: ByteArray,
     internal val encryptedPassword: ByteArray
   ) {
     override fun equals(other: Any?) =
@@ -266,6 +335,8 @@ abstract class Keychain {
         id == other.id &&
         title == other.title &&
         login == other.login &&
+        salt.contentEquals(other.salt) &&
+        iv.contentEquals(other.iv) &&
         encryptedPassword.contentEquals(other.encryptedPassword) &&
         path == other.path
 
@@ -345,10 +416,9 @@ abstract class Keychain {
     val passphraseSalt = ByteArray(size = 16)
     csprng.nextBytes(passphraseSalt)
     val passphrase = derivePassphraseFromMainPassword(passphraseSalt)
-    val cipherNonce = ByteArray(size = 12)
-    csprng.nextBytes(cipherNonce)
-    val encryptedPassword =
-      encryptPassword(plainPassword, cipherNonce, passphrase)
+    val iv = ByteArray(size = 12)
+    csprng.nextBytes(iv)
+    val encryptedPassword = encryptPassword(plainPassword, iv, passphrase)
     passphrase.fill(0)
     val key =
       Key(
@@ -357,7 +427,7 @@ abstract class Keychain {
         trimmedLogin,
         path,
         passphraseSalt,
-        cipherNonce,
+        iv,
         encryptedPassword)
     storage[key.id] = key
     return key.id
@@ -426,9 +496,9 @@ abstract class Keychain {
     derivedPassphrase: ByteArray
   ): ByteArray {
     val cipher = Cipher.getInstance(CIPHER_NAME)
-    val cipherKeySpec = SecretKeySpec(derivedPassphrase, "AES")
-    val cipherModeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, nonce)
-    cipher.init(Cipher.ENCRYPT_MODE, cipherKeySpec, cipherModeSpec)
+    val keySpec = SecretKeySpec(derivedPassphrase, "AES")
+    val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, nonce)
+    cipher.init(Cipher.ENCRYPT_MODE, keySpec, modeSpec)
     val encryptedPassword = cipher.doFinal(plainPassword.toByteArray())
     return encryptedPassword
   }
@@ -444,9 +514,9 @@ abstract class Keychain {
   private suspend fun decryptPassword(key: Key): String {
     val derivedPassphrase = derivePassphraseFromMainPassword(key.salt)
     val cipher = Cipher.getInstance(CIPHER_NAME)
-    val cipherKeySpec = SecretKeySpec(derivedPassphrase, "AES")
-    val cipherModeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, key.nonce)
-    cipher.init(Cipher.DECRYPT_MODE, cipherKeySpec, cipherModeSpec)
+    val keySpec = SecretKeySpec(derivedPassphrase, "AES")
+    val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, key.iv)
+    cipher.init(Cipher.DECRYPT_MODE, keySpec, modeSpec)
     val plainPassword = cipher.doFinal(key.encryptedPassword)
     return plainPassword.toString(Charsets.UTF_8)
   }
@@ -468,6 +538,12 @@ abstract class Keychain {
    * @see requestMainPassword
    * @see ByteArray.fill
    */
+
+  // We derive from the main password; there may be a potential for improvement
+  // here. 1Password, for example, generates their Secret Key on device, from
+  // which their equivalent of our passphrase is derived.
+  //
+  // https://agilebits.github.io/security-design/deepKeys.html#combining-with-the-secret-key
   private suspend fun derivePassphraseFromMainPassword(
     salt: ByteArray
   ): ByteArray {
@@ -477,7 +553,7 @@ abstract class Keychain {
       PBEKeySpec(
         requestedMainPasswordAsArray,
         salt,
-        /* iterationCount = */ 1 shl 20,
+        /* iterationCount = */ 1 shl 21,
         sizeInBits)
 
     // The array is zeroed because JVM's GC may not be deterministic; this way,
