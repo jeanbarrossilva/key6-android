@@ -1,42 +1,45 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
 package com.jeanbarrossilva.key6.keychain
 
-import kotlin.io.encoding.Base64
 import org.apache.commons.lang3.RandomStringUtils
 
 /**
- * Keychain for testing purposes only, as it is very, *very* basic. Stored
- * passwords are hashed by being encoded to Base64, which can be easily undone
- * by some perpetrator in production.
+ * Keychain for testing purposes only. Provides main passwords based on the
+ * given attempt rate when unlocking. For a keychain that always gives out the
+ * correct password, use the *lowest* rate.
  *
- * @property plainMainPassword Single password for accessing every key stored
- *   into the instantiated keychain, in plaintext.
- * @property unlockAttemptRate Determines the amount of times an incorrect main
- *   password will be provided by this keychain upon attempts to unlock it.
+ * Note that, because it stores its main password in the heap, this keychain is
+ * **insecure**.
+ *
+ * @property mainPassword Single password for accessing every key stored into
+ *   the instantiated keychain, in plaintext.
  */
-class UnsecureKeychain
-private constructor(
-  plainMainPassword: String,
-  private val unlockAttemptRate: UnlockAttemptRate
-) : Keychain(plainMainPassword) {
+class FakeKeychain
+private constructor(private val mainPassword: String) : Keychain(mainPassword) {
+  /**
+   * Determines the amount of times an incorrect main password will be provided
+   * by this keychain upon attempts to unlock it.
+   */
+  private var unlockAttemptRate = UnlockAttemptRate.default
+
   /**
    * Amount of times attempts to unlock this keychain were made in the current
    * streak.
@@ -51,35 +54,43 @@ private constructor(
    */
   private var currentUnlockAttemptCount = 0
 
-  public override fun hash(plainPassword: String) =
-    Base64.encode(plainPassword.toByteArray())
-
-  override suspend fun requestPlainMainPassword(): String {
-    val plainMainPassword = unhash(hashedMainPassword)
+  /**
+   * Amount of times attempts to unlock this keychain were made in the current
+   * streak.
+   *
+   * This starts off as zero, may be incremented depending on the set attempt
+   * rate, and will be zeroed after the incorrect main password is provided by
+   * this keychain *n* times, where *n* is
+   * `unlockAttemptRate.targetCount(this)`.
+   *
+   * @see unlockAttemptRate
+   * @see UnlockAttemptRate.targetCount
+   */
+  override suspend fun requestMainPassword(): String {
     if (currentUnlockAttemptCount++ < unlockAttemptRate.targetCount(this))
-      return unlockAttemptRate.generatePlainMainPassword(plainMainPassword)
+      return unlockAttemptRate.generateMainPassword(mainPassword)
     else {
       currentUnlockAttemptCount = 0
-      return plainMainPassword
+      return mainPassword
     }
   }
 
-  override fun unhash(hashedPassword: String) =
-    Base64.decode(hashedPassword).toString(Charsets.UTF_8)
+  /**
+   * Changes the unlock attempt rate of this keychain, which determines the
+   * amount of times an incorrect main password will be provided by this
+   * keychain upon attempts to unlock it.
+   *
+   * @param unlockAttemptRate The new unlock attempt rate of this keychain.
+   */
+  fun setUnlockAttemptRate(unlockAttemptRate: UnlockAttemptRate) {
+    this.unlockAttemptRate = unlockAttemptRate
+  }
 
   companion object {
-    /**
-     * Instantiates an unsecure keychain with a pseudorandom main password.
-     *
-     * @param unlockAttemptRate Determines the amount of times an incorrect main
-     *   password will be provided by this keychain upon attempts to unlock it.
-     */
+    /** Instantiates an unsecure keychain with a pseudorandom main password. */
     @JvmStatic
-    fun withRandomMainPassword(
-      unlockAttemptRate: UnlockAttemptRate = UnlockAttemptRate.default
-    ) =
-      withPlainMainPassword(
-        RandomStringUtils.insecure().next(8), unlockAttemptRate)
+    fun withRandomMainPassword() =
+      withMainPassword(RandomStringUtils.insecure().next(8))
 
     /**
      * Instantiates this type of keychain with its main password specified in
@@ -88,17 +99,13 @@ private constructor(
      * (assuming that such form remains unreferenced after calling this
      * function).
      *
-     * @param plainMainPassword Single password for accessing every key stored
-     *   into the instantiated keychain, in plaintext.
-     * @param unlockAttemptRate Determines the amount of times an incorrect main
-     *   password will be provided by this keychain upon attempts to unlock it.
+     * @param mainPassword Single password for accessing every key stored into
+     *   the instantiated keychain, in plaintext.
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun withPlainMainPassword(
-      plainMainPassword: String,
-      unlockAttemptRate: UnlockAttemptRate = UnlockAttemptRate.default
-    ) = UnsecureKeychain(plainMainPassword, unlockAttemptRate)
+    fun withMainPassword(mainPassword: String) =
+      FakeKeychain(mainPassword)
   }
 }
 
@@ -139,7 +146,7 @@ enum class UnlockAttemptRate {
    * @param plainMainPassword The main password in plaintext, with the hashing
    *   applied to it undone.
    */
-  internal fun generatePlainMainPassword(plainMainPassword: String): String {
+  internal fun generateMainPassword(plainMainPassword: String): String {
     return when (this) {
       Lowest -> plainMainPassword
       Mid,
@@ -160,7 +167,7 @@ enum class UnlockAttemptRate {
    *
    * @param keychain Keychain requested to be unlocked.
    */
-  internal fun targetCount(keychain: UnsecureKeychain) =
+  internal fun targetCount(keychain: FakeKeychain) =
     when (this) {
       Lowest -> 0
       Mid -> keychain.maxUnlockAttemptCount / 2
