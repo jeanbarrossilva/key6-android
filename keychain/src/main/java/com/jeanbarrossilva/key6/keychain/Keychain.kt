@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -146,8 +146,8 @@ import kotlin.uuid.Uuid
  *
  * Upon storing a key in the keychain, the passphrase derived in the previous
  * step is passed into the AES-256-GCM cipher as the AES key. The encryption,
- * with a 12-byte (96-bit) nonce and a 16-byte (128-bit) tag, outputs a 32-byte
- * (256-bit) ciphertext.
+ * with a 12-byte (96-bit) initialization vector (IV) and a 16-byte (128-bit)
+ * tag, outputs a 32-byte (256-bit) ciphertext.
  *
  * ## References
  *
@@ -234,7 +234,7 @@ abstract class Keychain {
 
   /**
    * Non-blocking, cryptographically-secure pseudorandom number generator
-   * (CSPRNG) of all salts and nonces of keys stored in this keychain.
+   * (CSPRNG) of all salts and IVs of keys stored in this keychain.
    *
    * ## On blocking vs non-blocking CSPRNGs
    *
@@ -312,9 +312,8 @@ abstract class Keychain {
    * @property salt Random 16-byte (128-bit) array generated for deriving the
    *   encrypted password of this key via PBKDF2. Prevents other keys with the
    *   same password from having the same encrypted password.
-   * @property iv Random 12-byte (96-bit) array passed into the AES-GCM cipher
-   *   alongside this key's encrypted password. Prevents an attacker, having
-   *   eavesdropped the exchange between the keychain and this keychain key…
+   * @property iv 12-byte (96-bit) initialization vector passed into the AES-GCM
+   *   cipher alongside this key's encrypted password.
    * @property encryptedPassword Encrypted form of the private string defined by
    *   the user as the pair to their login (if set) for authenticating at the
    *   site. If the login has been specified, this may be empty.
@@ -482,22 +481,22 @@ abstract class Keychain {
    * Last step of the encryption of the plain password of a key, in which the
    * AES-256-GCM algorithm encrypts the passphrase derived from the main
    * password. Rather than the key's plain password, this is what is stored in a
-   * key, alongside the salt for the [derivedPassphrase] and the [nonce].
+   * key, alongside the salt for the [derivedPassphrase] and the [iv].
    *
    * @param plainPassword The password for the key to be stored, in plaintext.
-   * @param nonce 12-byte (96-bit) array generated randomly by the [csprng].
+   * @param iv 12-byte (96-bit) array generated randomly by the [csprng].
    * @param derivedPassphrase A passphrase returned by
    *   [derivePassphraseFromMainPassword].
    * @return The given password, AES-256-GCM-encrypted.
    */
   private fun encryptPassword(
     plainPassword: String,
-    nonce: ByteArray,
+    iv: ByteArray,
     derivedPassphrase: ByteArray
   ): ByteArray {
     val cipher = Cipher.getInstance(CIPHER_NAME)
     val keySpec = SecretKeySpec(derivedPassphrase, "AES")
-    val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, nonce)
+    val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, iv)
     cipher.init(Cipher.ENCRYPT_MODE, keySpec, modeSpec)
     val encryptedPassword = cipher.doFinal(plainPassword.toByteArray())
     return encryptedPassword
