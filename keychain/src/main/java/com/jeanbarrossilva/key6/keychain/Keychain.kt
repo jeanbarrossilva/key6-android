@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -659,17 +659,17 @@ abstract class Keychain {
     lastActivityTimeInMilliseconds = System.currentTimeMillis()
   }
 
-  private companion object {
+  companion object {
     /**
      * Name of the AES-GCM cipher for encrypting/decrypting a key's password.
      */
-    const val CIPHER_NAME: String = "AES/GCM/NoPadding"
+    private const val CIPHER_NAME: String = "AES/GCM/NoPadding"
 
     /**
      * Amount of bytes in the authentication tag in the AES-258-GCM cipher for
      * encrypting/decrypting keys' passwords.
      */
-    const val CIPHER_TAG_LENGTH_IN_BITS = 128
+    private const val CIPHER_TAG_LENGTH_IN_BITS = 128
 
     /**
      * Argon2i hasher for the main password given in plaintext, with
@@ -687,7 +687,7 @@ abstract class Keychain {
      * @see Runtime.freeAvailableMemory
      */
     @JvmStatic
-    val mainPasswordHasher: Argon2 =
+    private val mainPasswordHasher: Argon2 =
       Argon2Factory.create(
         Argon2Factory.Argon2Types.ARGON2i,
         /* defaultSaltLength = */ 16,
@@ -731,7 +731,7 @@ abstract class Keychain {
      * @see Runtime.freeAvailableMemory
      */
     @JvmStatic
-    fun hash(mainPassword: String): String {
+    private fun hash(mainPassword: String): String {
       val runtime = Runtime.getRuntime()
       val freeAvailableMemoryInKibibytes =
         runtime.freeAvailableMemory() / (1 shl 10)
