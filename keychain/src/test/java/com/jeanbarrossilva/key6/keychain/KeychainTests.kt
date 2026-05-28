@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -22,6 +22,8 @@ package com.jeanbarrossilva.key6.keychain
 import assertk.all
 import assertk.assertFailure
 import assertk.assertThat
+import assertk.assertions.hasLength
+import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNotEqualTo
@@ -47,7 +49,8 @@ import org.junit.runners.Suite
   KeychainInstantiationTests::class,
   KeychainKeyStorageTests::class,
   KeychainKeyDecryptionTests::class,
-  KeychainLockTests::class)
+  KeychainLockTests::class,
+  KeychainPlainPasswordGenerationTests::class)
 class KeychainTests {
   @Test
   fun removesKey() {
@@ -313,6 +316,78 @@ class KeychainLockTests {
           path = null)
       keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
       keychain.remove(keyID)
+    }
+  }
+}
+
+@RunWith(JUnitParamsRunner::class)
+class KeychainPlainPasswordGenerationTests {
+  @Parameters("-2", "0")
+  @Test
+  fun returnsEmptyStringIfGeneratingWithLengthZeroOrNegative(length: Int) {
+    val keychain = FakeKeychain.withRandomMainPassword()
+    val generatedPlainPassword =
+      keychain.generatePlainPassword(
+        PlainPassword.Letters.WITH_DIACRITICS,
+        allowsDigits = true,
+        allowsSymbols = true,
+        length)
+    assertThat(generatedPlainPassword).isEmpty()
+  }
+
+  @Test
+  fun returnsEmptyStringIfGeneratingWithoutCharacterSubset() {
+    val keychain = FakeKeychain.withRandomMainPassword()
+    val generatedPlainPassword =
+      keychain.generatePlainPassword(
+        PlainPassword.Letters.NONE,
+        allowsDigits = false,
+        allowsSymbols = false,
+        length = 16)
+    assertThat(generatedPlainPassword).isEmpty()
+  }
+
+  @Parameters("2", "4", "16")
+  @Test
+  fun generates(length: Int) {
+    val keychain = FakeKeychain.withRandomMainPassword()
+    val generatedPlainPassword =
+      keychain.generatePlainPassword(
+        PlainPassword.Letters.WITH_DIACRITICS,
+        allowsDigits = true,
+        allowsSymbols = true,
+        length)
+    assertThat(generatedPlainPassword).hasLength(length)
+  }
+
+  @Test
+  fun generatesWithTruncatedLength() {
+    val keychain = FakeKeychain.withRandomMainPassword()
+    val generatedPlainPassword =
+      keychain.generatePlainPassword(
+        PlainPassword.Letters.WITH_DIACRITICS,
+        allowsDigits = true,
+        allowsSymbols = true,
+        length = 256)
+    assertThat(generatedPlainPassword).hasLength(PlainPassword.MAX_LENGTH)
+  }
+
+  @Test
+  fun generatesRandomly() {
+    val keychain = FakeKeychain.withRandomMainPassword()
+    repeat(32) {
+      assertThat(
+          keychain.generatePlainPassword(
+            PlainPassword.Letters.WITH_DIACRITICS,
+            allowsDigits = true,
+            allowsSymbols = true,
+            length = 16))
+        .isNotEqualTo(
+          keychain.generatePlainPassword(
+            PlainPassword.Letters.WITH_DIACRITICS,
+            allowsDigits = true,
+            allowsSymbols = true,
+            length = 16))
     }
   }
 }
