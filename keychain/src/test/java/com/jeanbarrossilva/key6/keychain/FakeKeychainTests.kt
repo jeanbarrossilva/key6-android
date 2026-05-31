@@ -27,17 +27,17 @@ import com.kevinmost.junit_retry_rule.RetryRule
 import org.junit.Rule
 import org.junit.Test
 
-internal class AutomaticKeychainTests {
+internal class FakeKeychainTests {
   @JvmField @Rule val retryRule = RetryRule()
 
   @Retry(times = 4)
   @Test
   fun isProducedWithRandomMainPassword() {
     repeat(32) {
-      val firstKeychain = AutomaticKeychain.withRandomMainPassword()
-      val secondKeychain = AutomaticKeychain.withRandomMainPassword()
+      val firstKeychain = FakeKeychain.withRandomMainPassword()
+      val secondKeychain = FakeKeychain.withRandomMainPassword()
       assertThat(secondKeychain)
-        .prop(AutomaticKeychain::mainPassword)
+        .prop(FakeKeychain::mainPassword)
         .isNotIn(firstKeychain.mainPassword)
     }
   }

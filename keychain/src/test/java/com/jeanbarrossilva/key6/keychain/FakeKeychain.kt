@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -22,7 +22,7 @@ package com.jeanbarrossilva.key6.keychain
 import java.util.concurrent.ThreadLocalRandom
 
 /**
- * Keychain for testing purposes only. Provides main passwords based on the
+ * In-memory keychain for testing purposes. Provides main passwords based on the
  * given attempt rate when unlocking. For a keychain that always gives out the
  * correct password, use the *lowest* rate.
  *
@@ -32,9 +32,16 @@ import java.util.concurrent.ThreadLocalRandom
  * @property mainPassword Single password for accessing every key stored into
  *   the instantiated keychain, in plaintext.
  */
-internal class AutomaticKeychain
+internal class FakeKeychain
 private constructor(internal val mainPassword: CharArray) :
   Keychain(mainPassword) {
+  /**
+   * Keys stored in this keychain by a prior call to [unlockAndStore], and that
+   * have not yet been removed. The string to which each of them is associated
+   * is their identifier, allowing for O(1) retrievals through calls to [get].
+   */
+  private val storage = HashMap<String, Key>()
+
   /**
    * Determines the amount of times an incorrect main password will be provided
    * by this keychain upon attempts to unlock it.
@@ -55,6 +62,12 @@ private constructor(internal val mainPassword: CharArray) :
    */
   private var currentUnlockAttemptCount = 0
 
+  override suspend fun store(key: Key) {
+    storage[key.id] = key
+  }
+
+  override fun get(keyID: String) = storage[keyID]
+
   override suspend fun requestMainPassword() =
     if (currentUnlockAttemptCount <
       unlockAttemptRate.targetCount(maxUnlockAttemptCount)) {
@@ -68,6 +81,10 @@ private constructor(internal val mainPassword: CharArray) :
       // Hence, the copy.
       mainPassword.copyOf()
     }
+
+  override suspend fun remove(keyID: String) {
+    storage.remove(keyID)
+  }
 
   /**
    * Changes the unlock attempt rate of this keychain, which determines the
@@ -104,8 +121,7 @@ private constructor(internal val mainPassword: CharArray) :
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun withMainPassword(mainPassword: CharArray) =
-      AutomaticKeychain(mainPassword)
+    fun withMainPassword(mainPassword: CharArray) = FakeKeychain(mainPassword)
   }
 }
 
@@ -151,7 +167,7 @@ internal enum class UnlockAttemptRate {
    *
    * @param keychain Keychain for which the main password will be generated.
    */
-  internal fun generateMainPassword(keychain: AutomaticKeychain) =
+  internal fun generateMainPassword(keychain: FakeKeychain) =
     when (this) {
       Lowest -> keychain.mainPassword
       Mid,

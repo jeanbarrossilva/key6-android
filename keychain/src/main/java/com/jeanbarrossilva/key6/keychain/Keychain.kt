@@ -124,8 +124,9 @@ import kotlin.uuid.Uuid
  * allows for deriving a passphrase in the next layer from the main password
  * (rather than from its hash, already known by the keychain).
  *
- * Similarly, reading the password of a key, i.e., calling [getPassword], will
- * require an unlock when this keychain is inactive.
+ * Similarly, reading the password of a key, i.e., calling
+ * [unlockAndGetPassword], will require an unlock when this keychain is
+ * inactive.
  *
  * ## Passphrase derivation
  *
@@ -164,8 +165,8 @@ import kotlin.uuid.Uuid
  *   https://agilebits.github.io/security-design.
  *
  * @see generatePlainPassword
- * @see remove
- * @see getPassword
+ * @see unlockAndRemove
+ * @see unlockAndGetPassword
  */
 @OptIn(ExperimentalUuidApi::class)
 abstract class Keychain {
@@ -178,8 +179,8 @@ abstract class Keychain {
    * provided in plaintext. Otherwise, these operations will be performed
    * without any restriction.
    *
-   * @see remove
-   * @see getPassword
+   * @see unlockAndRemove
+   * @see unlockAndGetPassword
    */
   val isLocked
     get() =
@@ -198,8 +199,8 @@ abstract class Keychain {
    * in an exception being thrown.
    *
    * @see isLocked
-   * @see remove
-   * @see getPassword
+   * @see unlockAndRemove
+   * @see unlockAndGetPassword
    */
   var inactivityThreshold
     get() =
@@ -220,7 +221,7 @@ abstract class Keychain {
    * that requires an unlock (e.g., reading the password of a key) and failing
    * more than the amount defined here, an exception will be thrown.
    *
-   * @see getPassword
+   * @see unlockAndGetPassword
    */
   var maxUnlockAttemptCount = 3
     set(maxUnlockAttemptCount) {
@@ -268,13 +269,6 @@ abstract class Keychain {
    */
   private val csprng: SecureRandom =
     SecureRandom.getInstance("NativePRNGNonBlocking")
-
-  /**
-   * Keys stored into this keychain by a prior call to [store], and that have
-   * not yet been removed. The string to which each of them is associated is
-   * their identifier, allowing for O(1) retrievals through calls to [get].
-   */
-  private val storage = HashMap<String, Key>()
 
   /**
    * Amount of milliseconds required to have passed since the last time in which
@@ -429,7 +423,7 @@ abstract class Keychain {
    * @return The identifier generated for the stored key.
    */
   @Throws(KeyException::class, RuntimeException::class)
-  suspend fun store(
+  suspend fun unlockAndStore(
     title: String,
     login: String,
     plainPassword: String,
@@ -458,7 +452,7 @@ abstract class Keychain {
         passphraseSalt,
         iv,
         encryptedPassword)
-    storage[key.id] = key
+    store(key)
     return key.id
   }
 
@@ -470,20 +464,10 @@ abstract class Keychain {
    * @return The decrypted password, or null if the key is not stored in this
    *   keychain.
    */
-  suspend fun getPassword(id: String): String? {
+  suspend fun unlockAndGetPassword(id: String): String? {
     val key = get(id) ?: return null
-    return decryptPassword(key)
+    return unlockAndDecryptPassword(key)
   }
-
-  /**
-   * Retrieves a key previously stored into this keychain.
-   *
-   * @param keyID Unique identifier of the key to be retrieved.
-   * @return The stored key, or `null` if no key with the given ID is stored at
-   *   the moment.
-   */
-  @Throws(IncorrectMainPasswordException::class)
-  operator fun get(keyID: String) = storage[keyID]
 
   /**
    * Removes a key stored into this keychain. In case there is no key with the
@@ -491,10 +475,28 @@ abstract class Keychain {
    *
    * @param keyID Unique identifier of the key to be removed.
    */
-  suspend fun remove(keyID: String) {
+  suspend fun unlockAndRemove(keyID: String) {
     if (isLocked) unlockAndDiscardMainPassword()
-    storage.remove(keyID)
+    remove(keyID)
   }
+
+  /**
+   * Adds the given key to this keychain, making it retrievable afterward.
+   *
+   * @param key Key to be stored.
+   * @see get
+   */
+  protected abstract suspend fun store(key: Key)
+
+  /**
+   * Retrieves a key previously stored into this keychain.
+   *
+   * @param keyID Unique identifier of the key to be retrieved.
+   * @return The stored key, or `null` if no key with the given ID is stored at
+   *   the moment.
+   * @see unlockAndStore
+   */
+  abstract operator fun get(keyID: String): Key?
 
   /**
    * Requests that the main password of this keychain be provided in plaintext.
@@ -510,6 +512,13 @@ abstract class Keychain {
    *   caller, potentially exposing it to other processes.
    */
   protected abstract suspend fun requestMainPassword(): CharArray
+
+  /**
+   * Removes the key with the given ID from this keychain.
+   *
+   * @param keyID Unique identifier of the key to be removed.
+   */
+  protected abstract suspend fun remove(keyID: String)
 
   /**
    * Last step of the encryption of the plain password of a key, in which the
@@ -544,7 +553,7 @@ abstract class Keychain {
    *   keychain (i.e., to *be* or *have been* stored in it), since the
    *   encryption process involved deriving from its keychain's main password.
    */
-  private suspend fun decryptPassword(key: Key): String {
+  private suspend fun unlockAndDecryptPassword(key: Key): String {
     val derivedPassphrase = unlockAndDerivePassphrase(key.salt)
     val cipher = Cipher.getInstance(CIPHER_NAME)
     val keySpec = SecretKeySpec(derivedPassphrase, "AES")
@@ -630,7 +639,7 @@ abstract class Keychain {
    *   be called instead.
    *
    * @see requestMainPassword
-   * @see getPassword
+   * @see unlockAndGetPassword
    */
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlockAndKeepMainPassword(): CharArray {
