@@ -34,51 +34,64 @@ import org.junit.runner.RunWith
 import org.junit.runners.Suite
 
 @RunWith(Suite::class)
-@Suite.SuiteClasses(CharArraysConsecutionTests::class)
-internal class CharArraysTests
-
-@RunWith(JUnitParamsRunner::class)
-internal class CharArraysConsecutionTests {
-  @Parameters("-1", "0", "1")
-  @Test
-  fun assertionFailsIfCountIsLessThan2(count: Int) {
-    assertFailure { Consecution(index = 0, ' ', count) }
-      .isInstanceOf<AssertionError>()
-  }
-
-  @Test
-  fun comparesConsecutions() {
-    assertThat(Consecution(index = 0, ' ', count = 2)).all {
-      isEqualTo(Consecution(index = 0, ' ', count = 2))
-      isNotEqualTo(Consecution(index = 2, ' ', count = 2))
-      isNotEqualTo(Consecution(index = 0, '…', count = 2))
-      isNotEqualTo(Consecution(index = 0, ' ', count = 4))
+@Suite.SuiteClasses(CharArraysTests.ConsecutionTests::class)
+internal class CharArraysTests {
+  @RunWith(JUnitParamsRunner::class)
+  internal class ConsecutionTests {
+    @Parameters("-1", "0", "1")
+    @Test
+    fun assertionFailsIfCountIsLessThan2(count: Int) {
+      assertFailure { Consecution(index = 0, ' ', count) }
+        .isInstanceOf<AssertionError>()
     }
-  }
 
-  @Parameters("", " ", "John")
-  @Test
-  fun returnsEmptyListWhenTryingToFindConsecutionsOfSequenceWithoutConsecutions(
-    characters: String
-  ) {
-    assertThat(characters.toCharArray())
-      .transform("findConsecutions(Char::isWhitespace)") {
-        it.findConsecutions(Char::isWhitespace)
+    @Test
+    fun comparesConsecutions() {
+      assertThat(Consecution(index = 0, ' ', count = 2)).all {
+        isEqualTo(Consecution(index = 0, ' ', count = 2))
+        isNotEqualTo(Consecution(index = 2, ' ', count = 2))
+        isNotEqualTo(Consecution(index = 0, '…', count = 2))
+        isNotEqualTo(Consecution(index = 0, ' ', count = 4))
       }
-      .isEmpty()
-  }
+    }
 
-  @Test
-  fun findsConsecutions() {
-    assertThat(
-        charArrayOf(
-          '1', ' ', '2', ' ', ' ', '3', ' ', ' ', ' ', '4', ' ', ' ', ' ', ' '))
-      .transform("findConsecutions(Char::isWhitespace)") {
-        it.findConsecutions(Char::isWhitespace)
-      }
-      .containsExactly(
-        Consecution(index = 3, character = ' ', count = 2),
-        Consecution(index = 6, character = ' ', count = 3),
-        Consecution(index = 10, character = ' ', count = 4))
+    @Parameters("", " ", "John")
+    @Test
+    fun returnsEmptyListWhenTryingToFindConsecutionsOfSequenceWithoutConsecutions(
+      characters: String
+    ) {
+      assertThat(characters.toCharArray())
+        .transform("findConsecutions(Char::isWhitespace)") {
+          it.findConsecutions(Char::isWhitespace)
+        }
+        .isEmpty()
+    }
+
+    @Test
+    fun findsConsecutions() {
+      assertThat(
+          charArrayOf(
+            '1',
+            ' ',
+            '2',
+            ' ',
+            ' ',
+            '3',
+            ' ',
+            ' ',
+            ' ',
+            '4',
+            ' ',
+            ' ',
+            ' ',
+            ' '))
+        .transform("findConsecutions(Char::isWhitespace)") {
+          it.findConsecutions(Char::isWhitespace)
+        }
+        .containsExactly(
+          Consecution(index = 3, character = ' ', count = 2),
+          Consecution(index = 6, character = ' ', count = 3),
+          Consecution(index = 10, character = ' ', count = 4))
+    }
   }
 }
