@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- *
+ * 
  * This file is part of the Key6 open-source project.
- *
+ * 
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- *
+ * 
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- *
+ * 
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -32,7 +32,8 @@ import java.util.concurrent.ThreadLocalRandom
  * @property mainPassword Single password for accessing every key stored into
  *   the instantiated keychain, in plaintext.
  */
-class FakeKeychain private constructor(internal val mainPassword: CharArray) :
+internal class AutomaticKeychain
+private constructor(internal val mainPassword: CharArray) :
   Keychain(mainPassword) {
   /**
    * Determines the amount of times an incorrect main password will be provided
@@ -103,7 +104,8 @@ class FakeKeychain private constructor(internal val mainPassword: CharArray) :
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun withMainPassword(mainPassword: CharArray) = FakeKeychain(mainPassword)
+    fun withMainPassword(mainPassword: CharArray) =
+      AutomaticKeychain(mainPassword)
   }
 }
 
@@ -119,7 +121,7 @@ class FakeKeychain private constructor(internal val mainPassword: CharArray) :
  * @see Lowest
  * @see Keychain.IncorrectMainPasswordException
  */
-enum class UnlockAttemptRate {
+internal enum class UnlockAttemptRate {
   /** The correct main password will be provided on the first try. */
   Lowest {
     override fun targetCount(max: Int) = 0
@@ -149,7 +151,7 @@ enum class UnlockAttemptRate {
    *
    * @param keychain Keychain for which the main password will be generated.
    */
-  internal fun generateMainPassword(keychain: FakeKeychain) =
+  internal fun generateMainPassword(keychain: AutomaticKeychain) =
     when (this) {
       Lowest -> keychain.mainPassword
       Mid,

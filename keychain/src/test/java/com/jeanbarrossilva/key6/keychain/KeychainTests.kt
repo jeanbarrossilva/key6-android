@@ -50,10 +50,10 @@ import org.junit.runners.Suite
   KeychainKeyDecryptionTests::class,
   KeychainLockTests::class,
   KeychainPlainPasswordGenerationTests::class)
-class KeychainTests {
+internal class KeychainTests {
   @Test
   fun removesKey() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     runTest {
       val keyID =
         keychain.store(
@@ -79,13 +79,15 @@ class KeychainInstantiationTests {
   @Parameters("", " ")
   @Test
   fun throwsIfInstantiatingWithBlankMainPassword(mainPassword: String) {
-    assertFailure { FakeKeychain.withMainPassword(mainPassword.toCharArray()) }
+    assertFailure {
+      AutomaticKeychain.withMainPassword(mainPassword.toCharArray())
+    }
   }
 
   @Test
   fun throwsIfInstantiatingWithMainPasswordWithLessThanEightCharacters() {
     assertFailure {
-      FakeKeychain.withMainPassword(
+      AutomaticKeychain.withMainPassword(
         charArrayOf('1', '2', '3', '4', '5', '6', '7'))
     }
   }
@@ -93,7 +95,7 @@ class KeychainInstantiationTests {
   @Test
   fun throwsIfInstantiatingWithMainPasswordWithMostlyWhitespaces() {
     assertFailure {
-      FakeKeychain.withMainPassword(charArrayOf('1', ' ', ' ', ' ', '2'))
+      AutomaticKeychain.withMainPassword(charArrayOf('1', ' ', ' ', ' ', '2'))
     }
   }
 }
@@ -102,7 +104,7 @@ class KeychainInstantiationTests {
 class KeychainKeyStorageTests {
   @Test
   fun throwsIfStoringUntitledKey() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     runTest {
       assertFailure {
           keychain.store(
@@ -122,7 +124,7 @@ class KeychainKeyStorageTests {
     login: String,
     password: String
   ) {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.setUnlockAttemptRate(
       UnlockAttemptRate.valueOf(unlockAttemptRateName))
     runTest {
@@ -136,7 +138,7 @@ class KeychainKeyStorageTests {
   @Parameters("Lowest", "Mid")
   @Test
   fun storesKey(unlockAttemptRateName: String) {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.setUnlockAttemptRate(
       UnlockAttemptRate.valueOf(unlockAttemptRateName))
     val keyTitle = "Lorem ipsum"
@@ -164,7 +166,7 @@ class KeychainKeyStorageTests {
     unlockAttemptRateName: String,
     password: String
   ) {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.setUnlockAttemptRate(
       UnlockAttemptRate.valueOf(unlockAttemptRateName))
     runTest {
@@ -184,7 +186,7 @@ class KeychainKeyStorageTests {
 
   @Test
   fun storedKeyPasswordIsHashed() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     val keyPlainPassword = "123"
     runTest {
       val keyID =
@@ -205,7 +207,7 @@ class KeychainKeyStorageTests {
 class KeychainKeyDecryptionTests {
   @Test
   fun returnsNullForPasswordOfUnstoredKey() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
 
     @OptIn(ExperimentalUuidApi::class)
     val nonStoredKeyID = Uuid.generateV7().toString()
@@ -221,7 +223,7 @@ class KeychainKeyDecryptionTests {
 
   @Test
   fun decryptsStoredKeyPassword() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     runTest {
       val keyID =
         keychain.store(
@@ -239,17 +241,17 @@ class KeychainKeyDecryptionTests {
 class KeychainLockTests {
   @Test
   fun isLockedByDefault() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.setUnlockAttemptRate(UnlockAttemptRate.Lowest)
     assertThat(keychain).all {
-      prop(FakeKeychain::isLocked).isTrue()
-      prop(FakeKeychain::inactivityThreshold).isEqualTo(Duration.ZERO)
+      prop(AutomaticKeychain::isLocked).isTrue()
+      prop(AutomaticKeychain::inactivityThreshold).isEqualTo(Duration.ZERO)
     }
   }
 
   @Test
   fun throwsIfInactivityThresholdIsNegative() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.setUnlockAttemptRate(UnlockAttemptRate.Lowest)
     assertFailure { keychain.inactivityThreshold = (-2).milliseconds }
       .isInstanceOf<IllegalArgumentException>()
@@ -257,7 +259,7 @@ class KeychainLockTests {
 
   @Test
   fun readsKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.inactivityThreshold = Duration.INFINITE
     runTest {
       val keyID =
@@ -277,7 +279,7 @@ class KeychainLockTests {
 
   @Test
   fun throwsIfCannotUnlockToReadKeyPassword() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     runTest {
       val keyID =
         keychain.store(
@@ -293,7 +295,7 @@ class KeychainLockTests {
 
   @Test
   fun throwsIfCannotUnlockToRemoveKey() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     runTest {
       val keyID =
         keychain.store(
@@ -309,7 +311,7 @@ class KeychainLockTests {
 
   @Test
   fun removesKeyWithoutUnlockingWhenInactivityThresholdIsNotExceeded() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     keychain.inactivityThreshold = Duration.INFINITE
     runTest {
       val keyID =
@@ -328,7 +330,7 @@ class KeychainLockTests {
 class KeychainPlainPasswordGenerationTests {
   @Test
   fun truncates() {
-    val keychain = FakeKeychain.withRandomMainPassword()
+    val keychain = AutomaticKeychain.withRandomMainPassword()
     val generatedPlainPassword =
       keychain.generatePlainPassword(
         PlainPassword.Letters.WITH_DIACRITICS,

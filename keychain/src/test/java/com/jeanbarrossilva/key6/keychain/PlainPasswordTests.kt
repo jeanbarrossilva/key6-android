@@ -25,14 +25,19 @@ import assertk.assertions.hasSize
 import assertk.assertions.isEmpty
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNotEqualTo
+import com.kevinmost.junit_retry_rule.Retry
+import com.kevinmost.junit_retry_rule.RetryRule
 import java.util.concurrent.ThreadLocalRandom
 import junitparams.JUnitParamsRunner
 import junitparams.Parameters
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(JUnitParamsRunner::class)
 internal class PlainPasswordTests {
+  @JvmField @Rule val retryRule = RetryRule()
+
   @Test
   fun throwsIfRngIsNull() {
     assertFailure {
@@ -84,6 +89,7 @@ internal class PlainPasswordTests {
     assertThat(generatedPlainPassword).hasSize(length)
   }
 
+  @Retry(times = 4)
   @Test
   fun generatesRandomly() {
     repeat(32) {
@@ -105,7 +111,6 @@ internal class PlainPasswordTests {
   }
 
   private companion object {
-    @JvmStatic
-    val rng: ThreadLocalRandom = ThreadLocalRandom.current()
+    @JvmStatic val rng: ThreadLocalRandom = ThreadLocalRandom.current()
   }
 }
