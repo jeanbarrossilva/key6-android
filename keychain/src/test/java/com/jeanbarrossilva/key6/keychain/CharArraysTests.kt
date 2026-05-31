@@ -34,11 +34,11 @@ import org.junit.runner.RunWith
 import org.junit.runners.Suite
 
 @RunWith(Suite::class)
-@Suite.SuiteClasses(ConsecutionTests::class)
-internal class CharSequenceCountTests
+@Suite.SuiteClasses(CharArraysConsecutionTests::class)
+internal class CharArraysTests
 
 @RunWith(JUnitParamsRunner::class)
-internal class ConsecutionTests {
+internal class CharArraysConsecutionTests {
   @Parameters("-1", "0", "1")
   @Test
   fun assertionFailsIfCountIsLessThan2(count: Int) {
