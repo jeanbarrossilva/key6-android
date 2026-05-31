@@ -378,7 +378,7 @@ abstract class Keychain {
    *   instantiated keychain, in plaintext.
    */
   @Throws(KeychainException::class)
-  protected constructor(mainPassword: String) {
+  protected constructor(mainPassword: CharArray) {
     validateMainPassword(mainPassword)
     mainPasswordHash = hash(mainPassword)
   }
@@ -396,36 +396,20 @@ abstract class Keychain {
    * @param length Amount of random characters in the generated password.
    * @return The generated plain password. Will be empty if the [length] was
    *   either negative or zero; otherwise, will contain at most
-   *   [PlainPassword.MAX_LENGTH] characters.
+   *   [MAX_GENERATED_PLAIN_PASSWORD_LENGTH] characters.
    */
-  @Throws(IllegalArgumentException::class)
   fun generatePlainPassword(
     letters: PlainPassword.Letters,
     allowsDigits: Boolean,
     allowsSymbols: Boolean,
     length: Int
-  ): String {
-    // RandomStringUtils from Apache Commons would be useful here; however,
-    // passing the CSPRNG into their function halts (which makes no sense to me,
-    // since the CSPRNG is non-blocking). Well; let us resort to a manual
-    // implementation.
-
-    if (length <= 0) return ""
-
-    // Because all character subsets ('letters.subset', 'digits', 'symbols', …)
-    // are "constant", allocating this discretion here seems wasteful. Maybe
-    // each permutation could be pre-allocated?
-    val discretion =
-      letters.subset +
-        (if (allowsDigits) PlainPassword.digits else charArrayOf()) +
-        (if (allowsSymbols) PlainPassword.symbols else charArrayOf())
-
-    if (discretion.isEmpty()) return ""
-    return CharArray(min(length, PlainPassword.MAX_LENGTH)) { _ ->
-        discretion[csprng.nextInt(discretion.size)]
-      }
-      .concatToString()
-  }
+  ): CharArray =
+    PlainPassword.generate(
+      csprng,
+      letters,
+      allowsDigits,
+      allowsSymbols,
+      min(length, MAX_GENERATED_PLAIN_PASSWORD_LENGTH))
 
   /**
    * Stores a key into this keychain.
@@ -459,11 +443,12 @@ abstract class Keychain {
     val id = Uuid.generateV7().toString()
     val passphraseSalt = ByteArray(size = 16)
     csprng.nextBytes(passphraseSalt)
-    val passphrase = derivePassphraseFromMainPassword(passphraseSalt)
+    val derivedPassphrase = unlockAndDerivePassphrase(passphraseSalt)
     val iv = ByteArray(size = 12)
     csprng.nextBytes(iv)
-    val encryptedPassword = encryptPassword(plainPassword, iv, passphrase)
-    passphrase.fill(0)
+    val encryptedPassword =
+      encryptPassword(plainPassword, iv, derivedPassphrase)
+    derivedPassphrase.fill(0)
     val key =
       Key(
         id,
@@ -476,16 +461,6 @@ abstract class Keychain {
     storage[key.id] = key
     return key.id
   }
-
-  /**
-   * Retrieves a key previously stored into this keychain.
-   *
-   * @param keyID Unique identifier of the key to be retrieved.
-   * @return The stored key, or `null` if no key with the given ID is stored at
-   *   the moment.
-   */
-  @Throws(IncorrectMainPasswordException::class)
-  operator fun get(keyID: String) = storage[keyID]
 
   /**
    * Obtains the password of the specified key, undoing the encryption performed
@@ -501,13 +476,23 @@ abstract class Keychain {
   }
 
   /**
+   * Retrieves a key previously stored into this keychain.
+   *
+   * @param keyID Unique identifier of the key to be retrieved.
+   * @return The stored key, or `null` if no key with the given ID is stored at
+   *   the moment.
+   */
+  @Throws(IncorrectMainPasswordException::class)
+  operator fun get(keyID: String) = storage[keyID]
+
+  /**
    * Removes a key stored into this keychain. In case there is no key with the
    * given ID, calling this method is a no-op.
    *
    * @param keyID Unique identifier of the key to be removed.
    */
   suspend fun remove(keyID: String) {
-    if (isLocked) unlock()
+    if (isLocked) unlockAndDiscardMainPassword()
     storage.remove(keyID)
   }
 
@@ -519,8 +504,12 @@ abstract class Keychain {
    * @return The provided main password in plaintext. May be different from the
    *   actual one of this keychain, since there might be a typo or the user may
    *   not be the owner of this keychain.
+   *
+   *   This password **must** be zeroed after used, since the GC may not be
+   *   deterministic and, thus, the password may outlive the scope of the
+   *   caller, potentially exposing it to other processes.
    */
-  protected abstract suspend fun requestMainPassword(): String
+  protected abstract suspend fun requestMainPassword(): CharArray
 
   /**
    * Last step of the encryption of the plain password of a key, in which the
@@ -531,7 +520,7 @@ abstract class Keychain {
    * @param plainPassword The password for the key to be stored, in plaintext.
    * @param iv 12-byte (96-bit) array generated randomly by the [csprng].
    * @param derivedPassphrase A passphrase returned by
-   *   [derivePassphraseFromMainPassword].
+   *   [unlockAndDerivePassphrase].
    * @return The given password, AES-256-GCM-encrypted.
    */
   private fun encryptPassword(
@@ -556,7 +545,7 @@ abstract class Keychain {
    *   encryption process involved deriving from its keychain's main password.
    */
   private suspend fun decryptPassword(key: Key): String {
-    val derivedPassphrase = derivePassphraseFromMainPassword(key.salt)
+    val derivedPassphrase = unlockAndDerivePassphrase(key.salt)
     val cipher = Cipher.getInstance(CIPHER_NAME)
     val keySpec = SecretKeySpec(derivedPassphrase, "AES")
     val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, key.iv)
@@ -588,24 +577,18 @@ abstract class Keychain {
   // which their equivalent of our passphrase is derived.
   //
   // https://agilebits.github.io/security-design/deepKeys.html#combining-with-the-secret-key
-  private suspend fun derivePassphraseFromMainPassword(
-    salt: ByteArray
-  ): ByteArray {
-    val requestedMainPasswordAsArray = unlock().toCharArray()
+  private suspend fun unlockAndDerivePassphrase(salt: ByteArray): ByteArray {
+    val mainPassword = unlockAndKeepMainPassword()
     val sizeInBits = 256
     val spec =
-      PBEKeySpec(
-        requestedMainPasswordAsArray,
-        salt,
-        /* iterationCount = */ 1 shl 21,
-        sizeInBits)
+      PBEKeySpec(mainPassword, salt, /* iterationCount= */ 1 shl 21, sizeInBits)
 
     // The array is zeroed because JVM's GC may not be deterministic; this way,
     // the actual contents of the password remain inaccessible by someone who's,
     // somehow, able to read the array.
     //
     // 'spec' is not affected by this, given that it makes a copy of it.
-    requestedMainPasswordAsArray.fill('\u0000')
+    mainPassword.fill('\u0000')
 
     val passphrase =
       SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
@@ -621,6 +604,15 @@ abstract class Keychain {
   }
 
   /**
+   * Alias for calling [unlockAndKeepMainPassword] and zeroing the given
+   * password immediately afterward. For when an operation requires unlocking
+   * the keychain, but the password itself is irrelevant.
+   */
+  @Throws(IncorrectMainPasswordException::class)
+  private suspend fun unlockAndDiscardMainPassword() =
+    unlockAndKeepMainPassword().fill('\u0000')
+
+  /**
    * Requests that this keychain be unlocked (if locked) by having its main
    * password provided in plaintext. Essential for operations that require
    * maximum security, such as obtaining the password of some key.
@@ -630,20 +622,29 @@ abstract class Keychain {
    * throw an exception and prohibit the operation from being performed.
    *
    * @return The provided, correct main password.
+   *
+   *   **Must** be zeroed after used, since JVM's GC may not be deterministic
+   *   and, thus, allow for this password to live longer than the caller scope,
+   *   potentially making it readable by other processes. In cases in which the
+   *   given password would *not* be used, [unlockAndDiscardMainPassword] should
+   *   be called instead.
+   *
    * @see requestMainPassword
    * @see getPassword
    */
   @Throws(IncorrectMainPasswordException::class)
-  private suspend fun unlock(): String {
-    var requestedMainPassword: String
+  private suspend fun unlockAndKeepMainPassword(): CharArray {
+    var requestedMainPassword: CharArray
     var unlockAttemptCount = 0
     while (true) {
       requestedMainPassword = requestMainPassword()
-      if (mainPasswordHasher.verify(
-        mainPasswordHash, requestedMainPassword.toCharArray()))
+      if (mainPasswordHasher.verify(mainPasswordHash, requestedMainPassword))
         break
       else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
-      else throw IncorrectMainPasswordException()
+      else {
+        requestedMainPassword.fill('\u0000')
+        throw IncorrectMainPasswordException()
+      }
     }
     markAsActive()
     return requestedMainPassword
@@ -660,6 +661,13 @@ abstract class Keychain {
   }
 
   companion object {
+    /**
+     * Maximum amount of characters in a plain password generated by a keychain.
+     *
+     * @see Keychain.generatePlainPassword
+     */
+    const val MAX_GENERATED_PLAIN_PASSWORD_LENGTH = 128
+
     /**
      * Name of the AES-GCM cipher for encrypting/decrypting a key's password.
      */
@@ -708,13 +716,13 @@ abstract class Keychain {
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun validateMainPassword(mainPassword: String) {
+    fun validateMainPassword(mainPassword: CharArray) {
       val areMostCharactersWhitespaces = {
         mainPassword.findConsecutions(Char::isWhitespace).any {
-          it.count >= mainPassword.length / 2
+          it.count >= mainPassword.size / 2
         }
       }
-      if (mainPassword.length < 8 || areMostCharactersWhitespaces())
+      if (mainPassword.size < 8 || areMostCharactersWhitespaces())
         throw KeychainException.ShortMainPassword()
     }
 
@@ -731,7 +739,7 @@ abstract class Keychain {
      * @see Runtime.freeAvailableMemory
      */
     @JvmStatic
-    private fun hash(mainPassword: String): String {
+    private fun hash(mainPassword: CharArray): String {
       val runtime = Runtime.getRuntime()
       val freeAvailableMemoryInKibibytes =
         runtime.freeAvailableMemory() / (1 shl 10)
@@ -740,199 +748,8 @@ abstract class Keychain {
         /* memory = */ min(
           ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
         /* parallelism = */ runtime.availableProcessors(),
-        mainPassword.toCharArray())
+        mainPassword)
     }
-  }
-}
-
-/** Context of keychain-specific plain password generation. */
-object PlainPassword {
-  /**
-   * Maximum amount of characters in a plain password generated by a keychain.
-   */
-  const val MAX_LENGTH = 128
-
-  /** Numbers 1–9 as characters. */
-  internal val digits =
-    charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
-
-  /** Punctuation and other characters deemed special and printable in ASCII. */
-  internal val symbols =
-    charArrayOf(
-      '!',
-      '"',
-      '#',
-      '$',
-      '%',
-      '&',
-      '\'',
-      '(',
-      ')',
-      '*',
-      '+',
-      ',',
-      '-',
-      '.',
-      '/',
-      ':',
-      ';',
-      '<',
-      '=',
-      '>',
-      '?',
-      '@',
-      '[',
-      '\\',
-      ']',
-      '^',
-      '_',
-      '`',
-      '{',
-      '|',
-      '}',
-      '~')
-
-  /**
-   * Selector of letters (including none) that a plain, generated password can
-   * include.
-   */
-  enum class Letters {
-    /** No letters will be included. */
-    NONE {
-      override val subset = charArrayOf()
-    },
-
-    /** Only letters without combining diacritics may be included. */
-    WITHOUT_DIACRITICS {
-      override val subset =
-        charArrayOf(
-          'A',
-          'a',
-          'B',
-          'b',
-          'C',
-          'c',
-          'D',
-          'd',
-          'E',
-          'e',
-          'F',
-          'f',
-          'G',
-          'g',
-          'H',
-          'h',
-          'I',
-          'i',
-          'J',
-          'j',
-          'K',
-          'k',
-          'L',
-          'l',
-          'M',
-          'm',
-          'N',
-          'n',
-          'O',
-          'o',
-          'P',
-          'p',
-          'Q',
-          'q',
-          'R',
-          'r',
-          'S',
-          's',
-          'T',
-          't',
-          'U',
-          'u',
-          'V',
-          'v',
-          'W',
-          'w',
-          'X',
-          'x',
-          'Y',
-          'y',
-          'Z',
-          'z')
-    },
-
-    /** Letters both with and without combining diacritics may be included. */
-    WITH_DIACRITICS {
-      override val subset =
-        WITHOUT_DIACRITICS.subset +
-          charArrayOf(
-            'À',
-            'à',
-            'Á',
-            'á',
-            'Â',
-            'â',
-            'Ã',
-            'ã',
-            'Ä',
-            'ä',
-            'Å',
-            'å',
-            'Æ',
-            'æ',
-            'Ç',
-            'ç',
-            'È',
-            'è',
-            'É',
-            'é',
-            'Ê',
-            'ê',
-            'Ë',
-            'ë',
-            'Ì',
-            'ì',
-            'Í',
-            'í',
-            'Î',
-            'î',
-            'Ï',
-            'ï',
-            'Ð',
-            'ð',
-            'Ñ',
-            'ñ',
-            'Ò',
-            'ò',
-            'Ó',
-            'ó',
-            'Ô',
-            'ô',
-            'Õ',
-            'õ',
-            'Ö',
-            'ö',
-            'Ø',
-            'ø',
-            'Ù',
-            'ù',
-            'Ú',
-            'ú',
-            'Û',
-            'û',
-            'Ü',
-            'ü',
-            'Ý',
-            'ý',
-            'Þ',
-            'þ',
-            'ÿ')
-    };
-
-    /**
-     * Characters that can be included in the password, according to this
-     * selector.
-     */
-    internal abstract val subset: CharArray
   }
 }
 

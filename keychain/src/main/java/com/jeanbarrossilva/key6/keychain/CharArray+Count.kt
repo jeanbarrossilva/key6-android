@@ -24,7 +24,7 @@ import java.util.Objects
 /**
  * Description of consecutive occurrences of a character in a sequence.
  *
- * @see CharSequence.findConsecutions
+ * @see CharArray.findConsecutions
  */
 class Consecution {
   /**
@@ -71,18 +71,18 @@ class Consecution {
 
 /**
  * Searches for the amount of consecutive occurrences of characters in this
- * sequence, alongside with their indices.
+ * array, alongside with their indices.
  *
  * @param predicate Determines whether the given character should be considered
  *   as part of a consecution in case others matching this predicate are
  *   adjacent to this character.
  * @return The amount of times certain characters were repeated consecutively,
- *   and the indices at which these repetitions started in this sequence.
+ *   and the indices at which these repetitions started in this array.
  */
-internal fun CharSequence.findConsecutions(
+internal fun CharArray.findConsecutions(
   predicate: (Char) -> Boolean
 ): List<Consecution> {
-  if (length < 2)
+  if (size < 2)
     return emptyList()
   var consecutions: ArrayList<Consecution>? = null
   var wasInConsecution = false

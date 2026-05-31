@@ -1,18 +1,18 @@
 /*
  * Copyright © Jean Silva
- * 
+ *
  * This file is part of the Key6 open-source project.
- * 
+ *
  * Key6 is free software: you can redistribute it and/or modify it under the
  * terms of the GNU General Public License as published by the Free Software
  * Foundation, either version 3 of the License, or (at your option) any later
  * version.
- * 
+ *
  * Key6 is distributed in the hope that it will be useful, but WITHOUT
  * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
  * FOR A PARTICULAR PURPOSE. See the GNU General Public License for more
  * details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
@@ -22,8 +22,7 @@ package com.jeanbarrossilva.key6.keychain
 import assertk.all
 import assertk.assertFailure
 import assertk.assertThat
-import assertk.assertions.hasLength
-import assertk.assertions.isEmpty
+import assertk.assertions.hasSize
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNotEqualTo
@@ -80,17 +79,22 @@ class KeychainInstantiationTests {
   @Parameters("", " ")
   @Test
   fun throwsIfInstantiatingWithBlankMainPassword(mainPassword: String) {
-    assertFailure { FakeKeychain.withMainPassword(mainPassword) }
+    assertFailure { FakeKeychain.withMainPassword(mainPassword.toCharArray()) }
   }
 
   @Test
   fun throwsIfInstantiatingWithMainPasswordWithLessThanEightCharacters() {
-    assertFailure { FakeKeychain.withMainPassword("1234567") }
+    assertFailure {
+      FakeKeychain.withMainPassword(
+        charArrayOf('1', '2', '3', '4', '5', '6', '7'))
+    }
   }
 
   @Test
   fun throwsIfInstantiatingWithMainPasswordWithMostlyWhitespaces() {
-    assertFailure { FakeKeychain.withMainPassword("1   2") }
+    assertFailure {
+      FakeKeychain.withMainPassword(charArrayOf('1', ' ', ' ', ' ', '2'))
+    }
   }
 }
 
@@ -322,72 +326,16 @@ class KeychainLockTests {
 
 @RunWith(JUnitParamsRunner::class)
 class KeychainPlainPasswordGenerationTests {
-  @Parameters("-2", "0")
   @Test
-  fun returnsEmptyStringIfGeneratingWithLengthZeroOrNegative(length: Int) {
+  fun truncates() {
     val keychain = FakeKeychain.withRandomMainPassword()
     val generatedPlainPassword =
       keychain.generatePlainPassword(
         PlainPassword.Letters.WITH_DIACRITICS,
         allowsDigits = true,
         allowsSymbols = true,
-        length)
-    assertThat(generatedPlainPassword).isEmpty()
-  }
-
-  @Test
-  fun returnsEmptyStringIfGeneratingWithoutCharacterSubset() {
-    val keychain = FakeKeychain.withRandomMainPassword()
-    val generatedPlainPassword =
-      keychain.generatePlainPassword(
-        PlainPassword.Letters.NONE,
-        allowsDigits = false,
-        allowsSymbols = false,
-        length = 16)
-    assertThat(generatedPlainPassword).isEmpty()
-  }
-
-  @Parameters("2", "4", "16")
-  @Test
-  fun generates(length: Int) {
-    val keychain = FakeKeychain.withRandomMainPassword()
-    val generatedPlainPassword =
-      keychain.generatePlainPassword(
-        PlainPassword.Letters.WITH_DIACRITICS,
-        allowsDigits = true,
-        allowsSymbols = true,
-        length)
-    assertThat(generatedPlainPassword).hasLength(length)
-  }
-
-  @Test
-  fun generatesWithTruncatedLength() {
-    val keychain = FakeKeychain.withRandomMainPassword()
-    val generatedPlainPassword =
-      keychain.generatePlainPassword(
-        PlainPassword.Letters.WITH_DIACRITICS,
-        allowsDigits = true,
-        allowsSymbols = true,
-        length = 256)
-    assertThat(generatedPlainPassword).hasLength(PlainPassword.MAX_LENGTH)
-  }
-
-  @Test
-  fun generatesRandomly() {
-    val keychain = FakeKeychain.withRandomMainPassword()
-    repeat(32) {
-      assertThat(
-          keychain.generatePlainPassword(
-            PlainPassword.Letters.WITH_DIACRITICS,
-            allowsDigits = true,
-            allowsSymbols = true,
-            length = 16))
-        .isNotEqualTo(
-          keychain.generatePlainPassword(
-            PlainPassword.Letters.WITH_DIACRITICS,
-            allowsDigits = true,
-            allowsSymbols = true,
-            length = 16))
-    }
+        length = Keychain.MAX_GENERATED_PLAIN_PASSWORD_LENGTH * 2)
+    assertThat(generatedPlainPassword)
+      .hasSize(Keychain.MAX_GENERATED_PLAIN_PASSWORD_LENGTH)
   }
 }

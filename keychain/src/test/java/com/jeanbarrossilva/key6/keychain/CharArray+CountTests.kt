@@ -59,9 +59,9 @@ class ConsecutionTests {
   @Parameters("", " ", "John")
   @Test
   fun returnsEmptyListWhenTryingToFindConsecutionsOfSequenceWithoutConsecutions(
-    characters: CharSequence
+    characters: String
   ) {
-    assertThat(characters)
+    assertThat(characters.toCharArray())
       .transform("findConsecutions(Char::isWhitespace)") {
         it.findConsecutions(Char::isWhitespace)
       }
@@ -70,7 +70,9 @@ class ConsecutionTests {
 
   @Test
   fun findsConsecutions() {
-    assertThat("1 2  3   4    ")
+    assertThat(
+        charArrayOf(
+          '1', ' ', '2', ' ', ' ', '3', ' ', ' ', ' ', '4', ' ', ' ', ' ', ' '))
       .transform("findConsecutions(Char::isWhitespace)") {
         it.findConsecutions(Char::isWhitespace)
       }

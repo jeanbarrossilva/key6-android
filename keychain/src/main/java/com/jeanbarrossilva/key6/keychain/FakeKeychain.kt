@@ -19,7 +19,7 @@
 
 package com.jeanbarrossilva.key6.keychain
 
-import org.apache.commons.lang3.RandomStringUtils
+import java.util.concurrent.ThreadLocalRandom
 
 /**
  * Keychain for testing purposes only. Provides main passwords based on the
@@ -32,8 +32,8 @@ import org.apache.commons.lang3.RandomStringUtils
  * @property mainPassword Single password for accessing every key stored into
  *   the instantiated keychain, in plaintext.
  */
-class FakeKeychain
-private constructor(private val mainPassword: String) : Keychain(mainPassword) {
+class FakeKeychain private constructor(internal val mainPassword: CharArray) :
+  Keychain(mainPassword) {
   /**
    * Determines the amount of times an incorrect main password will be provided
    * by this keychain upon attempts to unlock it.
@@ -54,26 +54,19 @@ private constructor(private val mainPassword: String) : Keychain(mainPassword) {
    */
   private var currentUnlockAttemptCount = 0
 
-  /**
-   * Amount of times attempts to unlock this keychain were made in the current
-   * streak.
-   *
-   * This starts off as zero, may be incremented depending on the set attempt
-   * rate, and will be zeroed after the incorrect main password is provided by
-   * this keychain *n* times, where *n* is
-   * `unlockAttemptRate.targetCount(this)`.
-   *
-   * @see unlockAttemptRate
-   * @see UnlockAttemptRate.targetCount
-   */
-  override suspend fun requestMainPassword(): String {
-    if (currentUnlockAttemptCount++ < unlockAttemptRate.targetCount(this))
-      return unlockAttemptRate.generateMainPassword(mainPassword)
-    else {
+  override suspend fun requestMainPassword() =
+    if (currentUnlockAttemptCount <
+      unlockAttemptRate.targetCount(maxUnlockAttemptCount)) {
+      currentUnlockAttemptCount++
+      unlockAttemptRate.generateMainPassword(this)
+    } else {
       currentUnlockAttemptCount = 0
-      return mainPassword
+
+      // requestMainPassword() is called by the keychain when an unlock is
+      // attempted; afterward, the password returned here is zeroed internally.
+      // Hence, the copy.
+      mainPassword.copyOf()
     }
-  }
 
   /**
    * Changes the unlock attempt rate of this keychain, which determines the
@@ -90,7 +83,13 @@ private constructor(private val mainPassword: String) : Keychain(mainPassword) {
     /** Instantiates an unsecure keychain with a pseudorandom main password. */
     @JvmStatic
     fun withRandomMainPassword() =
-      withMainPassword(RandomStringUtils.insecure().next(8))
+      withMainPassword(
+        PlainPassword.generate(
+          ThreadLocalRandom.current(),
+          PlainPassword.Letters.WITH_DIACRITICS,
+          /* allowsDigits = */ true,
+          /* allowsSymbols = */ true,
+          /* length = */ 8))
 
     /**
      * Instantiates this type of keychain with its main password specified in
@@ -104,8 +103,7 @@ private constructor(private val mainPassword: String) : Keychain(mainPassword) {
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun withMainPassword(mainPassword: String) =
-      FakeKeychain(mainPassword)
+    fun withMainPassword(mainPassword: CharArray) = FakeKeychain(mainPassword)
   }
 }
 
@@ -123,56 +121,55 @@ private constructor(private val mainPassword: String) : Keychain(mainPassword) {
  */
 enum class UnlockAttemptRate {
   /** The correct main password will be provided on the first try. */
-  Lowest,
+  Lowest {
+    override fun targetCount(max: Int) = 0
+  },
 
   /**
    * The correct main password will be provided after
    * ⌈[Keychain.maxUnlockAttemptCount] ÷ 2⌉ attempts to unlock with incorrect
    * passwords.
    */
-  Mid,
+  Mid {
+    override fun targetCount(max: Int) = max / 2
+  },
 
   /**
    * The correct main password will never be provided; all passwords given when
    * requested will be incorrect.
    */
-  Exceeding;
+  Exceeding {
+    override fun targetCount(max: Int) = max + 1
+  };
 
   /**
    * For non-*lowest* rates, generates a main password in plaintext that differs
    * from the correct one for the keychain; for a *lowest* rate, returns the
    * actual main password of the keychain.
    *
-   * @param plainMainPassword The main password in plaintext, with the hashing
-   *   applied to it undone.
+   * @param keychain Keychain for which the main password will be generated.
    */
-  internal fun generateMainPassword(plainMainPassword: String): String {
-    return when (this) {
-      Lowest -> plainMainPassword
+  internal fun generateMainPassword(keychain: FakeKeychain) =
+    when (this) {
+      Lowest -> keychain.mainPassword
       Mid,
-      Exceeding -> {
-        var generatedPlainMainPassword: String
-        do {
-          generatedPlainMainPassword = RandomStringUtils.insecure().next(8)
-        } while (plainMainPassword == generatedPlainMainPassword)
-        generatedPlainMainPassword
-      }
+      Exceeding ->
+        keychain.generatePlainPassword(
+          PlainPassword.Letters.WITH_DIACRITICS,
+          allowsDigits = true,
+          allowsSymbols = true,
+          length = keychain.mainPassword.size / 2)
     }
-  }
 
   /**
    * Returns the amount of incorrect main passwords to be provided when trying
    * to unlock the given keychain. Such amount will be respective to that of
    * this rate; for more information, refer to this rate's documentation.
    *
-   * @param keychain Keychain requested to be unlocked.
+   * @param max [Keychain.maxUnlockAttemptCount] of the keychain.
+   * @return The target count *cₜ*, where *cₜ* ≥ 0 and *cₜ* ≠ [max].
    */
-  internal fun targetCount(keychain: FakeKeychain) =
-    when (this) {
-      Lowest -> 0
-      Mid -> keychain.maxUnlockAttemptCount / 2
-      Exceeding -> keychain.maxUnlockAttemptCount + 1
-    }
+  internal abstract fun targetCount(max: Int): Int
 
   companion object {
     /**
