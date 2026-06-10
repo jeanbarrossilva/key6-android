@@ -26,7 +26,7 @@ import java.util.random.RandomGenerator;
 // Written in Java merely because of the package-protected visibility, lacking
 // in Kotlin. The downside is that the code itself is rather verbose.
 public final class PlainPassword {
-  /** Numbers 1–9 as characters. */
+  /** Numbers 0–9 as characters. */
   private static final char[] digitSubset = {
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9'};
 

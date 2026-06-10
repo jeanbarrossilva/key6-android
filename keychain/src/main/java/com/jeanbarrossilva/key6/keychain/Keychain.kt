@@ -19,11 +19,11 @@
 
 package com.jeanbarrossilva.key6.keychain
 
-import de.mkammerer.argon2.Argon2
-import de.mkammerer.argon2.Argon2Factory
 import java.net.URI
+import java.security.NoSuchAlgorithmException
 import java.security.SecureRandom
 import java.util.Objects
+import java.util.UUID
 import javax.crypto.Cipher
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
@@ -34,6 +34,7 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
+import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 
 /**
  * Actor responsible for the main feature of Key6: storing, encrypting and
@@ -53,17 +54,6 @@ import kotlin.uuid.Uuid
  * string. As it is an implementation detail and subject to change, no
  * assumptions on the format of this string should be made; however, as of v1 of
  * Key6, every key identifier is a UUID v7.
- *
- * ## Creating a keychain
- *
- * All types of keychain expose a factory method for instantiating them from a
- * main password in plaintext: `T.Companion.withMainPassword(String)`, where `T`
- * is the type.
- *
- * When a type of keychain is requested to be instantiated (i.e., its factory
- * method is called), the given main password undergoes some verifications as to
- * keep the keychain minimally secure. For more on these, refer to
- * [validateMainPassword].
  *
  * ## Locking and unlocking
  *
@@ -113,6 +103,10 @@ import kotlin.uuid.Uuid
  * from data breaches. Because these attackers may take advantage of specialized
  * hardware (e.g., FPGAs), the aforementioned salt is insufficient by itself.
  * Therefore, in Key6, *at most* **64 MiB** will be consumed.
+ *
+ * (When a keychain is instantiated, its main password undergoes some
+ * verifications as to keep the keychain minimally secure. For more on these,
+ * refer to [validateMainPassword].)
  *
  * ## Locking
  *
@@ -268,7 +262,11 @@ abstract class Keychain {
    *   https://www.thomas-huehn.com/myths-about-urandom.
    */
   private val csprng: SecureRandom =
-    SecureRandom.getInstance("NativePRNGNonBlocking")
+    try {
+      SecureRandom.getInstance("NativePRNGNonBlocking")
+    } catch (_: NoSuchAlgorithmException) {
+      SecureRandom()
+    }
 
   /**
    * Amount of milliseconds required to have passed since the last time in which
@@ -293,7 +291,7 @@ abstract class Keychain {
   /**
    * Authentication metadata for a site.
    *
-   * @property id Unique identifier of this key in the keychain into which it is
+   * @property id Identifier of this key, unique in the keychain in which it is
    *   stored.
    * @property title Trimmed display identifier of this key. This may not be
    *   unique, as it serves only for the user to distinguish one key from
@@ -301,9 +299,6 @@ abstract class Keychain {
    * @property login Trimmed primary identification of the user at the site;
    *   usually their e-mail address or username. May be empty, as sites may not
    *   demand one while still enforcing a password.
-   * @property path Path to the site at which the user signed up with the given
-   *   login and password. This may refer to a website, a local file (e.g., a
-   *   password-protected compressed file), etc.
    * @property salt Random 16-byte (128-bit) array generated for deriving the
    *   encrypted password of this key via PBKDF2. Prevents other keys with the
    *   same password from having the same encrypted password.
@@ -312,17 +307,20 @@ abstract class Keychain {
    * @property encryptedPassword Encrypted form of the private string defined by
    *   the user as the pair to their login (if set) for authenticating at the
    *   site. If the login has been specified, this may be empty.
+   * @property path Path to the site at which the user signed up with the given
+   *   login and password. This may refer to a website, a local file (e.g., a
+   *   password-protected compressed file), etc.
    */
-  inner class Key
-  @Throws(KeyException::class)
+  class Key
+  @Throws(StorageException::class)
   internal constructor(
     val id: String,
     val title: String,
     val login: String,
-    val path: URI?,
-    internal val salt: ByteArray,
-    internal val iv: ByteArray,
-    internal val encryptedPassword: ByteArray
+    val salt: ByteArray,
+    val iv: ByteArray,
+    val encryptedPassword: ByteArray,
+    val path: URI?
   ) {
     override fun equals(other: Any?) =
       other is Key &&
@@ -335,23 +333,137 @@ abstract class Keychain {
         path == other.path
 
     override fun hashCode() =
-      Objects.hash(id, title, login, encryptedPassword, path)
+      Objects.hash(id, title, login, salt, iv, encryptedPassword, path)
+
+    companion object {
+      /**
+       * Instantiates a zeroed, 16-byte array to be populated with random bytes
+       * and serve as the salt of a key.
+       */
+      @JvmStatic fun newSalt() = ByteArray(size = 16)
+
+      /**
+       * Instantiates a zeroed, 12-byte array to be populated with random bytes
+       * and serve as the IV of a key.
+       */
+      @JvmStatic fun newIV() = ByteArray(size = 12)
+
+      /**
+       * Attempts to instantiate a key.
+       *
+       * @param id [Key.id].
+       * @param title [Key.title].
+       * @param login [Key.login].
+       * @param salt [Key.salt].
+       * @param iv [Key.iv].
+       * @param encryptedPassword [Key.encryptedPassword].
+       * @param path [Key.path].
+       * @see newSalt
+       * @see newIV
+       */
+      @JvmStatic
+      @Throws(KeyException::class)
+      fun new(
+        id: String,
+        title: String,
+        login: String,
+        salt: ByteArray,
+        iv: ByteArray,
+        encryptedPassword: ByteArray,
+        path: URI?
+      ): Key {
+        val trimmedID = id.trim()
+        if (trimmedID.isEmpty()) throw KeyException.NonUuidV7ID(version = null)
+        val uuidVersion =
+          try {
+            UUID.fromString(trimmedID).version()
+          } catch (_: IllegalArgumentException) {
+            null
+          }
+        if (uuidVersion != 7) throw KeyException.NonUuidV7ID(uuidVersion)
+        val (normalizedTitle, normalizedLogin) =
+          validateAndNormalize(title, login)
+        if (salt.size != 16) throw KeyException.Non16ByteSalt(salt.size)
+        if (iv.size != 12) throw KeyException.Non12ByteIV(iv.size)
+        return Key(
+          id,
+          normalizedTitle,
+          normalizedLogin,
+          salt,
+          iv,
+          encryptedPassword,
+          path)
+      }
+
+      /**
+       * Ensures that a key can be instantiated with the given title and login,
+       * throwing an exception in case the title is blank and would, thus,
+       * result in an invalid key.
+       *
+       * @param title [Key.title] to validate.
+       * @param login [Key.login] to validate.
+       * @return The title and the login, trimmed.
+       */
+      @JvmStatic
+      @Throws(StorageException.Untitled::class)
+      internal fun validateAndNormalize(title: String, login: String) =
+        title.trim().ifEmpty { throw StorageException.Untitled() } to
+          login.trim()
+    }
   }
 
   /**
-   * Exception that may be thrown when instantiating a key.
+   * Exception for when a key is attempted to be instantiated with an argument
+   * in an invalid format.
    *
-   * @param message Description of why this exception was thrown.
+   * @see Key.new
    */
   sealed class KeyException(message: String) :
     IllegalArgumentException(message) {
+    /**
+     * Thrown if the given ID is not a UUID v7.
+     *
+     * @param version Version of the UUID, or null in case the ID was not a
+     *   UUID.
+     */
+    class NonUuidV7ID internal constructor(val version: Int?) :
+      KeyException(
+        "ID of a key should be a UUID v7" +
+          (version?.let { "(was $it)" } ?: "") +
+          ".")
+
+    /**
+     * Thrown if the salt is not an array with 16 bytes.
+     *
+     * @param size Amount of bytes in the given salt.
+     */
+    class Non16ByteSalt internal constructor(val size: Int) :
+      KeyException("Salt of a key should contain 16 bytes (got $size).")
+
+    /**
+     * Thrown if the IV is not an array with 12 bytes.
+     *
+     * @param size Amount of bytes in the given IV.
+     */
+    class Non12ByteIV internal constructor(val size: Int) :
+      KeyException("IV of a key should contain 12 bytes (got $size).")
+  }
+
+  /**
+   * Exception that may be thrown when storing a key in a keychain.
+   *
+   * @param message Description of why this exception was thrown.
+   */
+  sealed class StorageException(message: String) :
+    IllegalArgumentException(message) {
+
     /** Thrown if a key without a title is tried to be instantiated. */
     class Untitled internal constructor() :
-      KeyException("Key cannot be untitled.")
+      StorageException("Key cannot be untitled.")
 
     /** Thrown when instantiating a key without both a login and a password. */
     class Insufficient internal constructor() :
-      KeyException(
+      StorageException(
         "A key is required to have one of the two: a login or a password.")
   }
 
@@ -408,50 +520,37 @@ abstract class Keychain {
   /**
    * Stores a key into this keychain.
    *
-   * @param title Display identifier of the key. This may not be unique, as it
-   *   serves only for the user to distinguish one key from another; internally,
-   *   rather, keys are identified by their identifier.
-   * @param login Primary identification of the user at the site; usually their
-   *   e-mail address or username. May be blank, as sites may not demand one
-   *   while still enforcing a password.
+   * @param title [Key.title].
+   * @param login [Key.login].
    * @param plainPassword Private string defined by the user as the pair to
    *   their login (if set) for authenticating at the site, in plaintext. If the
    *   login has been specified, this may be blank.
-   * @param path Path to the site at which the user signed up with the given
-   *   login and password. This may refer to a website, a local file (e.g., a
-   *   password-protected compressed file), etc.
+   * @param path [Key.path].
    * @return The identifier generated for the stored key.
    */
-  @Throws(KeyException::class, RuntimeException::class)
+  @Throws(StorageException::class, RuntimeException::class)
   suspend fun unlockAndStore(
     title: String,
     login: String,
     plainPassword: String,
     path: URI?
   ): String {
-    val trimmedTitle = title.trim()
-    if (trimmedTitle.isEmpty()) throw KeyException.Untitled()
-    val trimmedLogin = login.trim()
-    if (trimmedLogin.isEmpty() && plainPassword.isBlank())
-      throw KeyException.Insufficient()
+    val (normalizedTitle, normalizedLogin) =
+      Key.validateAndNormalize(title, login)
+    if (normalizedLogin.isEmpty() && plainPassword.isBlank())
+      throw StorageException.Insufficient()
     val id = Uuid.generateV7().toString()
-    val passphraseSalt = ByteArray(size = 16)
-    csprng.nextBytes(passphraseSalt)
-    val derivedPassphrase = unlockAndDerivePassphrase(passphraseSalt)
-    val iv = ByteArray(size = 12)
+    val salt = Key.newSalt()
+    csprng.nextBytes(salt)
+    val derivedPassphrase = unlockAndDerivePassphrase(salt)
+    val iv = Key.newIV()
     csprng.nextBytes(iv)
     val encryptedPassword =
       encryptPassword(plainPassword, iv, derivedPassphrase)
     derivedPassphrase.fill(0)
     val key =
       Key(
-        id,
-        trimmedTitle,
-        trimmedLogin,
-        path,
-        passphraseSalt,
-        iv,
-        encryptedPassword)
+        id, normalizedTitle, normalizedLogin, salt, iv, encryptedPassword, path)
     store(key)
     return key.id
   }
@@ -460,14 +559,24 @@ abstract class Keychain {
    * Obtains the password of the specified key, undoing the encryption performed
    * on it when it was stored.
    *
-   * @param id ID of the key whose password will be decrypted.
+   * @param keyID ID of the key whose password will be obtained.
    * @return The decrypted password, or null if the key is not stored in this
    *   keychain.
    */
-  suspend fun unlockAndGetPassword(id: String): String? {
-    val key = get(id) ?: return null
+  suspend fun unlockAndGetPassword(keyID: String): String? {
+    val key = get(keyID) ?: return null
     return unlockAndDecryptPassword(key)
   }
+
+  /**
+   * Retrieves a key previously stored into this keychain.
+   *
+   * @param keyID Unique identifier of the key to be retrieved.
+   * @return The stored key, or null if no key with the given ID is stored at
+   *   the moment.
+   * @see unlockAndStore
+   */
+  abstract suspend operator fun get(keyID: String): Key?
 
   /**
    * Removes a key stored into this keychain. In case there is no key with the
@@ -489,14 +598,11 @@ abstract class Keychain {
   protected abstract suspend fun store(key: Key)
 
   /**
-   * Retrieves a key previously stored into this keychain.
+   * Removes the key with the given ID from this keychain.
    *
-   * @param keyID Unique identifier of the key to be retrieved.
-   * @return The stored key, or `null` if no key with the given ID is stored at
-   *   the moment.
-   * @see unlockAndStore
+   * @param keyID Unique identifier of the key to be removed.
    */
-  abstract operator fun get(keyID: String): Key?
+  protected abstract suspend fun remove(keyID: String)
 
   /**
    * Requests that the main password of this keychain be provided in plaintext.
@@ -512,13 +618,6 @@ abstract class Keychain {
    *   caller, potentially exposing it to other processes.
    */
   protected abstract suspend fun requestMainPassword(): CharArray
-
-  /**
-   * Removes the key with the given ID from this keychain.
-   *
-   * @param keyID Unique identifier of the key to be removed.
-   */
-  protected abstract suspend fun remove(keyID: String)
 
   /**
    * Last step of the encryption of the plain password of a key, in which the
@@ -641,19 +740,22 @@ abstract class Keychain {
    * @see requestMainPassword
    * @see unlockAndGetPassword
    */
+  @Suppress("AssignedValueIsNeverRead")
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlockAndKeepMainPassword(): CharArray {
     var requestedMainPassword: CharArray
     var unlockAttemptCount = 0
     while (true) {
       requestedMainPassword = requestMainPassword()
-      if (mainPasswordHasher.verify(mainPasswordHash, requestedMainPassword))
-        break
+      var concatenatedRequestedMainPassword: String? =
+        requestedMainPassword.concatToString()
+      val isMatch =
+        mainPasswordEncoder.matches(
+          concatenatedRequestedMainPassword, mainPasswordHash)
+      concatenatedRequestedMainPassword = null
+      if (isMatch) break
       else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
-      else {
-        requestedMainPassword.fill('\u0000')
-        throw IncorrectMainPasswordException()
-      }
+      else throw IncorrectMainPasswordException()
     }
     markAsActive()
     return requestedMainPassword
@@ -704,11 +806,18 @@ abstract class Keychain {
      * @see Runtime.freeAvailableMemory
      */
     @JvmStatic
-    private val mainPasswordHasher: Argon2 =
-      Argon2Factory.create(
-        Argon2Factory.Argon2Types.ARGON2i,
-        /* defaultSaltLength = */ 16,
-        /* defaultHashLength =  */ 16)
+    private val mainPasswordEncoder = run {
+      val runtime: Runtime = Runtime.getRuntime()
+      val freeAvailableMemoryInKibibytes =
+        runtime.freeAvailableMemory() / (1 shl 10)
+      Argon2PasswordEncoder(
+        /* saltLength = */ 16,
+        /* hashLength = */ 16,
+        /* parallelism = */ runtime.availableProcessors(),
+        /* memory = */ min(
+          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
+        /* iterations = */ 2)
+    }
 
     /**
      * Ensures that the main password given when instantiating some type of
@@ -749,15 +858,16 @@ abstract class Keychain {
      */
     @JvmStatic
     private fun hash(mainPassword: CharArray): String {
-      val runtime = Runtime.getRuntime()
-      val freeAvailableMemoryInKibibytes =
-        runtime.freeAvailableMemory() / (1 shl 10)
-      return mainPasswordHasher.hash(
-        /* iterations = */ 2,
-        /* memory = */ min(
-          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
-        /* parallelism = */ runtime.availableProcessors(),
-        mainPassword)
+      val mainPasswordBuilder = StringBuilder()
+      mainPasswordBuilder.append(mainPassword)
+      val hash = mainPasswordEncoder.encode(mainPasswordBuilder.toString())
+      mainPasswordBuilder.clear()
+      return checkNotNull(hash) {
+        "Encoder returned a null hash, even though the main password was not " +
+          "null. This may be a bug in the library; to circumvent it: find a " +
+          "workaround; use another library; or implement Argon2i manually " +
+          "(https://github.com/P-H-C/phc-winner-argon2/blob/f57e61e19229e23c4445b85494dbf7c07de721cb/argon2-specs.pdf)."
+      }
     }
   }
 }

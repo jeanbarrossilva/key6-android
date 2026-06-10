@@ -66,7 +66,7 @@ private constructor(internal val mainPassword: CharArray) :
     storage[key.id] = key
   }
 
-  override fun get(keyID: String) = storage[keyID]
+  override suspend fun get(keyID: String) = storage[keyID]
 
   override suspend fun requestMainPassword() =
     if (currentUnlockAttemptCount <

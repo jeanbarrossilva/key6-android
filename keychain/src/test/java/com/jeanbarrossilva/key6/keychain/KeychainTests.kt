@@ -97,7 +97,7 @@ internal class KeychainTests {
               plainPassword = "123",
               path = null)
           }
-          .isInstanceOf<Keychain.KeyException.Untitled>()
+          .isInstanceOf<Keychain.StorageException.Untitled>()
       }
     }
 
@@ -116,7 +116,7 @@ internal class KeychainTests {
             keychain.unlockAndStore(
               title = "Lorem ipsum", login, password, path = null)
           }
-          .isInstanceOf<Keychain.KeyException.Insufficient>()
+          .isInstanceOf<Keychain.StorageException.Insufficient>()
       }
     }
 
