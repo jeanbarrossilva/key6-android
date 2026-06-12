@@ -19,6 +19,7 @@
 
 package com.jeanbarrossilva.key6.keychain
 
+import java.nio.CharBuffer
 import java.util.Objects
 
 /**
@@ -51,7 +52,7 @@ class Consecution {
 
   @Throws(AssertionError::class)
   internal constructor(index: Int, character: Char, count: Int) {
-    assert(count >= 2) {  "Amount of consecutive characters should be ≥ 2."  }
+    assert(count >= 2) { "Amount of consecutive characters should be ≥ 2." }
     this.startIndex = index
     this.character = character
     this.count = count
@@ -70,6 +71,27 @@ class Consecution {
 }
 
 /**
+ * Returns a [CharSequence] that *may* be backed by this array.
+ *
+ * This method will return a sequence backed by this array only if this array is
+ * populated: in such case, writes to this array *will* reflect on the returned
+ * sequence (behavior that may or may not be desired). This is useful when,
+ * e.g., this array contains sensitive information, which can be altered or
+ * zeroed afterward to prevent other processes from reading its contents.
+ *
+ * If the intended behavior is to always produce an independent sequence, call:
+ *
+ * 1) The [String] constructor that accepts an array of characters (for an array
+ *    containing data which may be read by other processes); or
+ * 2) this method on a copy of this array.
+ *
+ * Otherwise, for a sequence which is invariably backed by this array, call
+ * [CharBuffer.wrap], passing this array into it.
+ */
+internal fun CharArray.asCharSequence(): CharSequence =
+  if (isEmpty()) "" else CharBuffer.wrap(this)
+
+/**
  * Searches for the amount of consecutive occurrences of characters in this
  * array, alongside with their indices.
  *
@@ -82,33 +104,28 @@ class Consecution {
 internal fun CharArray.findConsecutions(
   predicate: (Char) -> Boolean
 ): List<Consecution> {
-  if (size < 2)
-    return emptyList()
+  if (size < 2) return emptyList()
   var consecutions: ArrayList<Consecution>? = null
   var wasInConsecution = false
-  for ((characterIndex, character) in withIndex())
-    if (predicate(character))
-      if (!wasInConsecution)
+  for ((characterIndex, character) in withIndex()) if (predicate(character))
+    if (!wasInConsecution) wasInConsecution = true
+    else {
+      val consecutionIndex = characterIndex - 1
+      val consecutionCount = 2
+      if (consecutions == null) {
+        consecutions = ArrayList()
+        consecutions.add(
+          Consecution(consecutionIndex, character, consecutionCount))
         wasInConsecution = true
-      else {
-        val consecutionIndex = characterIndex - 1
-        val consecutionCount = 2
-        if (consecutions == null) {
-          consecutions = ArrayList()
-          consecutions.add(
-            Consecution(consecutionIndex, character, consecutionCount))
-          wasInConsecution = true
-        } else {
-          val lastConsecution = consecutions.last()
-          if (lastConsecution.endIndex + 1 == characterIndex &&
-              lastConsecution.character == character)
-            lastConsecution.count++
-          else
-            consecutions.add(
-              Consecution(consecutionIndex, character, count = 2))
-        }
+      } else {
+        val lastConsecution = consecutions.last()
+        if (lastConsecution.endIndex + 1 == characterIndex &&
+          lastConsecution.character == character)
+          lastConsecution.count++
+        else
+          consecutions.add(Consecution(consecutionIndex, character, count = 2))
       }
-    else
-      wasInConsecution = false
+    }
+  else wasInConsecution = false
   return consecutions ?: emptyList()
 }

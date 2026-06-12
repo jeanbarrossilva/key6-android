@@ -34,7 +34,6 @@ import kotlin.time.Duration
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.uuid.ExperimentalUuidApi
 import kotlin.uuid.Uuid
-import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
 
 /**
  * Actor responsible for the main feature of Key6: storing, encrypting and
@@ -225,8 +224,8 @@ abstract class Keychain {
       field = maxUnlockAttemptCount
     }
 
-  /** Argon2i hash of the main password of this keychain. */
-  protected val mainPasswordHash: String
+  /** Argon2i hasher for the main password given in plaintext. */
+  private val mainPasswordHasher: Argon2iHasher
 
   /**
    * Non-blocking, cryptographically-secure pseudorandom number generator
@@ -486,7 +485,8 @@ abstract class Keychain {
   @Throws(KeychainException::class)
   protected constructor(mainPassword: CharArray) {
     validateMainPassword(mainPassword)
-    mainPasswordHash = hash(mainPassword)
+    mainPasswordHasher = Argon2iHasher(csprng)
+    mainPasswordHasher.hash(mainPassword)
   }
 
   /**
@@ -740,20 +740,13 @@ abstract class Keychain {
    * @see requestMainPassword
    * @see unlockAndGetPassword
    */
-  @Suppress("AssignedValueIsNeverRead")
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlockAndKeepMainPassword(): CharArray {
     var requestedMainPassword: CharArray
     var unlockAttemptCount = 0
     while (true) {
       requestedMainPassword = requestMainPassword()
-      var concatenatedRequestedMainPassword: String? =
-        requestedMainPassword.concatToString()
-      val isMatch =
-        mainPasswordEncoder.matches(
-          concatenatedRequestedMainPassword, mainPasswordHash)
-      concatenatedRequestedMainPassword = null
-      if (isMatch) break
+      if (mainPasswordHasher.isMatch(requestedMainPassword)) break
       else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
       else throw IncorrectMainPasswordException()
     }
@@ -791,35 +784,6 @@ abstract class Keychain {
     private const val CIPHER_TAG_LENGTH_IN_BITS = 128
 
     /**
-     * Argon2i hasher for the main password given in plaintext, with
-     *
-     * - 2 iterations;
-     * - a 16-byte (128-bit) salt;
-     * - a 16-byte (128-bit) hash; and
-     * - a memory consumption of (potentially) 64 MiB.
-     *
-     * The amount of memory consumed will depend on memory availability: if more
-     * than 64 MiB are available, consumption will be of 64 MiB; otherwise, 15%
-     * of that available free, available memory will be consumed.
-     *
-     * @see hash
-     * @see Runtime.freeAvailableMemory
-     */
-    @JvmStatic
-    private val mainPasswordEncoder = run {
-      val runtime: Runtime = Runtime.getRuntime()
-      val freeAvailableMemoryInKibibytes =
-        runtime.freeAvailableMemory() / (1 shl 10)
-      Argon2PasswordEncoder(
-        /* saltLength = */ 16,
-        /* hashLength = */ 16,
-        /* parallelism = */ runtime.availableProcessors(),
-        /* memory = */ min(
-          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
-        /* iterations = */ 2)
-    }
-
-    /**
      * Ensures that the main password given when instantiating some type of
      * keychain is minimally secure. There are some rules that a main password
      * should follow. It
@@ -842,32 +806,6 @@ abstract class Keychain {
       }
       if (mainPassword.size < 8 || areMostCharactersWhitespaces())
         throw KeychainException.ShortMainPassword()
-    }
-
-    /**
-     * Hashes the main password of this keychain using the Argon2i function.
-     *
-     * Because this function hashes, the password itself becomes (practically)
-     * unrecoverable—hence it being a parameter. Storing it in the keychain
-     * would allocate it on the heap rather than the stack, possibly allowing
-     * for other processes to read it.
-     *
-     * @param mainPassword The password for unlocking this keychain.
-     * @return A hash of the given password.
-     * @see Runtime.freeAvailableMemory
-     */
-    @JvmStatic
-    private fun hash(mainPassword: CharArray): String {
-      val mainPasswordBuilder = StringBuilder()
-      mainPasswordBuilder.append(mainPassword)
-      val hash = mainPasswordEncoder.encode(mainPasswordBuilder.toString())
-      mainPasswordBuilder.clear()
-      return checkNotNull(hash) {
-        "Encoder returned a null hash, even though the main password was not " +
-          "null. This may be a bug in the library; to circumvent it: find a " +
-          "workaround; use another library; or implement Argon2i manually " +
-          "(https://github.com/P-H-C/phc-winner-argon2/blob/f57e61e19229e23c4445b85494dbf7c07de721cb/argon2-specs.pdf)."
-      }
     }
   }
 }
