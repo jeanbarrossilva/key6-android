@@ -20,6 +20,7 @@
 package com.jeanbarrossilva.key6.keychain
 
 import br.com.orcinus.orca.ext.reflection.java.access
+import java.nio.CharBuffer
 import java.security.SecureRandom
 import kotlin.math.min
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
@@ -27,7 +28,7 @@ import org.springframework.security.crypto.keygen.BytesKeyGenerator
 
 // Our hasher is backed by an encoder provided by the Spring Security Crypto
 // library. Such an encoder is somewhat odd (to me), and we only resort to it
-// because it is the only one I found to work in Android; I've tried using the
+// because it's the only one I found to work in Android; I've tried using the
 // 'de.mkammerer:argon2-jvm' library, but it seems like it provides no
 // Android-native implementation, causing it to crash at runtime.
 //
@@ -43,8 +44,8 @@ import org.springframework.security.crypto.keygen.BytesKeyGenerator
 //    'Argon2iHasher.hash(CharArray)' and 'Argon2iHasher.initEncoder()'); and
 // 3) its encoder method accepts not an array, but a sequence of characters.
 //    This isn't necessarily a problem, as a 'CharSequence' isn't necessarily a
-//    string—but it can be one, which would probably be a security loophole. We
-//    take care of it by requesting an array from the caller, and converting
+//    'String'—but it can be one, which would probably be a security loophole.
+//    We take care of it by requesting an array from the caller, and converting
 //    that array into a sequence with our 'CharArray.asCharSequence()'
 //    extension. That extension, in turn, takes care of the potential
 //    interdependence between the array and the produced sequence.
@@ -104,10 +105,8 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
    * than 64 MiB are available, consumption will be of 64 MiB; otherwise, 15% of
    * that available free, available memory will be consumed
    *
-   * Because this method hashes, the password itself becomes (practically)
-   * unrecoverable—hence it being a parameter. Storing it would allocate it on
-   * the heap rather than the stack, possibly allowing for other processes to
-   * read it.
+   * The given password **must** be zeroed after the call to this method:
+   * keeping its contents may allow for other processes to read it.
    *
    * @param password The password to hash, in plaintext.
    * @see Runtime.freeAvailableMemory
@@ -176,3 +175,15 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
     private const val SALT_LENGTH_IN_BYTES = 16
   }
 }
+
+/**
+ * Returns a [CharSequence] that *may* be backed by this array.
+ *
+ * This method will return a sequence backed by this array only if this array is
+ * populated: in such case, writes to this array *will* reflect on the returned
+ * sequence. This is useful when this array contains sensitive information: it
+ * can be altered or zeroed afterward to prevent other processes from reading
+ * it.
+ */
+private fun CharArray.asCharSequence(): CharSequence =
+  if (isEmpty()) "" else CharBuffer.wrap(this)

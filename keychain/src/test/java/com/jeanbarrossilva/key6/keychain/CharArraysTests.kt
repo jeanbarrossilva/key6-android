@@ -27,8 +27,6 @@ import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isInstanceOf
 import assertk.assertions.isNotEqualTo
-import assertk.assertions.isSameInstanceAs
-import assertk.assertions.prop
 import junitparams.JUnitParamsRunner
 import junitparams.Parameters
 import org.junit.Test
@@ -36,27 +34,8 @@ import org.junit.runner.RunWith
 import org.junit.runners.Suite
 
 @RunWith(Suite::class)
-@Suite.SuiteClasses(CharArraysTests.CharSequenceConversionTests::class)
+@Suite.SuiteClasses(CharArraysTests.ConsecutionTests::class)
 internal class CharArraysTests {
-  internal class CharSequenceConversionTests {
-    @Test
-    fun returnsEmptyCharSequenceForEmptyArray() =
-      assertThat(charArrayOf()).prop(CharArray::asCharSequence).isEmpty()
-
-    @Test
-    fun returnsSameEmptyCharSequenceForEmptyArray() =
-      assertThat(charArrayOf())
-        .prop(CharArray::asCharSequence)
-        .isSameInstanceAs(charArrayOf().asCharSequence())
-
-    @Test
-    fun contentsOfArrayAndSequenceIntoWhichItIsConvertedAreEqual() =
-      assertThat(charArrayOf('a', 'p', 'p', 'l', 'e', 's', 'e', 'e', 'd'))
-        .prop(CharArray::asCharSequence)
-        .prop(CharSequence::toList)
-        .containsExactly('a', 'p', 'p', 'l', 'e', 's', 'e', 'e', 'd')
-  }
-
   @RunWith(JUnitParamsRunner::class)
   internal class ConsecutionTests {
     @Parameters("-1", "0", "1")

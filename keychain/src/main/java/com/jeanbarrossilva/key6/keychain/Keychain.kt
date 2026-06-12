@@ -54,6 +54,13 @@ import kotlin.uuid.Uuid
  * assumptions on the format of this string should be made; however, as of v1 of
  * Key6, every key identifier is a UUID v7.
  *
+ * ## Creating a keychain
+ *
+ * Instantiating an implementation of [Keychain] may require the main password;
+ * furthermore, that keychain might specify that such password be zeroed after
+ * passed into it, to prevent cross-process reads. Refer to such keychain's
+ * documentation and be sure to take the recommended measures.
+ *
  * ## Locking and unlocking
  *
  * The sole purpose of a keychain is to make the task of storing passwords and
@@ -480,7 +487,9 @@ abstract class Keychain {
    * Instantiates a keychain from a main password.
    *
    * @param mainPassword Single password for accessing every key stored into the
-   *   instantiated keychain, in plaintext.
+   *   instantiated keychain, in plaintext. This password **must** be zeroed
+   *   after the call to this constructor in order to prevent cross-process
+   *   accesses to its contents.
    */
   @Throws(KeychainException::class)
   protected constructor(mainPassword: CharArray) {
