@@ -22,26 +22,50 @@ package com.jeanbarrossilva.key6.keychain
 import assertk.assertThat
 import assertk.assertions.isFalse
 import assertk.assertions.isTrue
-import org.junit.Test
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
 import java.security.SecureRandom
+import org.junit.Test
 
 internal class Argon2iHasherTests {
   @Test
   fun returnsFalseUponMatchAgainstUnhashedPassword() {
-    val hasher = Argon2iHasher(SecureRandom())
-    val password = charArrayOf('a', 'p', 'p', 'l', 'e', 's', 'e', 'e', 'd')
+    val hasher = newHasher()
     assertThat(hasher)
       .transform("matches(${password.toList()})") { it.isMatch(password) }
       .isFalse()
   }
 
   @Test
+  fun saltIsGeneratedByGivenCsprng() {
+    val hasherCsprng = mockk<SecureRandom>()
+    val ourCsprng = SecureRandom()
+    val emptySalt = Argon2iHasher.newSalt()
+    val populatedSalt = Argon2iHasher.newSalt()
+    every { hasherCsprng.nextBytes(emptySalt) } answers
+      {
+        ourCsprng.nextBytes(populatedSalt)
+      }
+    val hasher = newHasher(hasherCsprng)
+    hasher.hash(password)
+    verify { hasherCsprng.nextBytes(emptySalt) }
+  }
+
+  @Test
   fun returnsTrueIfPasswordIsMatchedAgainstHashedEqualOne() {
-    val hasher = Argon2iHasher(SecureRandom())
-    val password = charArrayOf('a', 'p', 'p', 'l', 'e', 's', 'e', 'e', 'd')
+    val hasher = newHasher()
     hasher.hash(password)
     assertThat(hasher)
       .transform("matches(${password.toList()})") { it.isMatch(password) }
       .isTrue()
   }
+
+  private companion object {
+    @JvmStatic
+    val password = charArrayOf('a', 'p', 'p', 'l', 'e', 's', 'e', 'e', 'd')
+  }
 }
+
+private fun newHasher(csprng: SecureRandom = SecureRandom()) =
+  Argon2iHasher(csprng)

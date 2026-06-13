@@ -19,4 +19,5 @@ dependencies {
   testImplementation(libs.jUnit)
   testImplementation(libs.jUnitParams)
   testImplementation(libs.kotlin.coroutines.test)
+  testImplementation(libs.mockK)
 }

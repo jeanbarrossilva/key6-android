@@ -87,9 +87,9 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
     override fun getKeyLength() = SALT_LENGTH_IN_BYTES
 
     override fun generateKey(): ByteArray {
-      val key = ByteArray(SALT_LENGTH_IN_BYTES)
-      csprng.nextBytes(key)
-      return key
+      val salt = newSalt()
+      csprng.nextBytes(salt)
+      return salt
     }
   }
 
@@ -103,7 +103,7 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
    *
    * The amount of memory consumed will depend on memory availability: if more
    * than 64 MiB are available, consumption will be of 64 MiB; otherwise, 15% of
-   * that available free, available memory will be consumed
+   * that free, available memory will be consumed.
    *
    * The given password **must** be zeroed after the call to this method:
    * keeping its contents may allow for other processes to read it.
@@ -156,7 +156,7 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
       runtime.freeAvailableMemory() / (1 shl 10)
     encoder =
       Argon2PasswordEncoder(
-        /* saltLength = */ SALT_LENGTH_IN_BYTES,
+        SALT_LENGTH_IN_BYTES,
         /* hashLength = */ 16,
         /* parallelism = */ runtime.availableProcessors(),
         /* memory = */ min(
@@ -173,6 +173,12 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
      * [hash]'s documentation.
      */
     private const val SALT_LENGTH_IN_BYTES = 16
+
+    /**
+     * Instantiates an empty array to be filled with a salt for hashing a
+     * password.
+     */
+    @JvmStatic fun newSalt() = ByteArray(SALT_LENGTH_IN_BYTES)
   }
 }
 
