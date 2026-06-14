@@ -33,7 +33,7 @@ import java.util.concurrent.ThreadLocalRandom
  *   the instantiated keychain, in plaintext.
  */
 internal class FakeKeychain
-private constructor(internal val mainPassword: CharArray) :
+private constructor(internal val mainPassword: PlainPassword) :
   Keychain(mainPassword) {
   /**
    * Keys stored in this keychain by a prior call to [unlockAndStore], and that
@@ -77,9 +77,9 @@ private constructor(internal val mainPassword: CharArray) :
       currentUnlockAttemptCount = 0
 
       // requestMainPassword() is called by the keychain when an unlock is
-      // attempted; afterward, the password returned here is zeroed internally.
-      // Hence, the copy.
-      mainPassword.copyOf()
+      // attempted; afterward, the password returned here is discarded
+      // internally. Hence, the clone.
+      mainPassword.clone()
     }
 
   override suspend fun remove(keyID: String) {
@@ -105,9 +105,9 @@ private constructor(internal val mainPassword: CharArray) :
         PlainPassword.generate(
           ThreadLocalRandom.current(),
           PlainPassword.Letters.WITH_DIACRITICS,
-          /* allowsDigits = */ true,
-          /* allowsSymbols = */ true,
-          /* length = */ 8))
+          allowsDigits = true,
+          allowsSymbols = true,
+          length = 8))
 
     /**
      * Instantiates this type of keychain with its main password specified in
@@ -121,7 +121,8 @@ private constructor(internal val mainPassword: CharArray) :
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun withMainPassword(mainPassword: CharArray) = FakeKeychain(mainPassword)
+    fun withMainPassword(mainPassword: PlainPassword) =
+      FakeKeychain(mainPassword)
   }
 }
 
@@ -176,7 +177,7 @@ internal enum class UnlockAttemptRate {
           PlainPassword.Letters.WITH_DIACRITICS,
           allowsDigits = true,
           allowsSymbols = true,
-          length = keychain.mainPassword.size / 2)
+          length = keychain.mainPassword.length / 2)
     }
 
   /**

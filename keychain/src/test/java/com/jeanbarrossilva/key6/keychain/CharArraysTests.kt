@@ -60,7 +60,7 @@ internal class CharArraysTests {
     fun returnsEmptyListWhenTryingToFindConsecutionsOfSequenceWithoutConsecutions(
       characters: String
     ) {
-      assertThat(characters.toCharArray())
+      assertThat(characters)
         .transform("findConsecutions(Char::isWhitespace)") {
           it.findConsecutions(Char::isWhitespace)
         }
@@ -69,22 +69,7 @@ internal class CharArraysTests {
 
     @Test
     fun findsConsecutions() {
-      assertThat(
-          charArrayOf(
-            '1',
-            ' ',
-            '2',
-            ' ',
-            ' ',
-            '3',
-            ' ',
-            ' ',
-            ' ',
-            '4',
-            ' ',
-            ' ',
-            ' ',
-            ' '))
+      assertThat("1 2  3   4    ")
         .transform("findConsecutions(Char::isWhitespace)") {
           it.findConsecutions(Char::isWhitespace)
         }

@@ -57,9 +57,9 @@ import kotlin.uuid.Uuid
  * ## Creating a keychain
  *
  * Instantiating an implementation of [Keychain] may require the main password;
- * furthermore, that keychain might specify that such password be zeroed after
- * passed into it, to prevent cross-process reads. Refer to such keychain's
- * documentation and be sure to take the recommended measures.
+ * furthermore, that keychain might specify that such password be discarded
+ * after passed into it, to prevent cross-process reads. Refer to such
+ * keychain's documentation and be sure to take the recommended measures.
  *
  * ## Locking and unlocking
  *
@@ -346,13 +346,13 @@ abstract class Keychain {
        * Instantiates a zeroed, 16-byte array to be populated with random bytes
        * and serve as the salt of a key.
        */
-      @JvmStatic fun newSalt() = ByteArray(size = 16)
+      @JvmStatic fun newZeroedSalt() = ByteArray(size = 16)
 
       /**
        * Instantiates a zeroed, 12-byte array to be populated with random bytes
        * and serve as the IV of a key.
        */
-      @JvmStatic fun newIV() = ByteArray(size = 12)
+      @JvmStatic fun newZeroedIV() = ByteArray(size = 12)
 
       /**
        * Attempts to instantiate a key.
@@ -364,11 +364,11 @@ abstract class Keychain {
        * @param iv [Key.iv].
        * @param encryptedPassword [Key.encryptedPassword].
        * @param path [Key.path].
-       * @see newSalt
-       * @see newIV
+       * @see newZeroedSalt
+       * @see newZeroedIV
        */
       @JvmStatic
-      @Throws(KeyException::class)
+      @Throws(KeyException::class, StorageException::class)
       fun new(
         id: String,
         title: String,
@@ -487,12 +487,13 @@ abstract class Keychain {
    * Instantiates a keychain from a main password.
    *
    * @param mainPassword Single password for accessing every key stored into the
-   *   instantiated keychain, in plaintext. This password **must** be zeroed
+   *   instantiated keychain, in plaintext. This password **must** be discarded
    *   after the call to this constructor in order to prevent cross-process
    *   accesses to its contents.
+   * @see PlainPassword.discard
    */
   @Throws(KeychainException::class)
-  protected constructor(mainPassword: CharArray) {
+  protected constructor(mainPassword: PlainPassword) {
     validateMainPassword(mainPassword)
     mainPasswordHasher = Argon2iHasher(csprng)
     mainPasswordHasher.hash(mainPassword)
@@ -518,7 +519,7 @@ abstract class Keychain {
     allowsDigits: Boolean,
     allowsSymbols: Boolean,
     length: Int
-  ): CharArray =
+  ) =
     PlainPassword.generate(
       csprng,
       letters,
@@ -531,32 +532,38 @@ abstract class Keychain {
    *
    * @param title [Key.title].
    * @param login [Key.login].
-   * @param plainPassword Private string defined by the user as the pair to
-   *   their login (if set) for authenticating at the site, in plaintext. If the
-   *   login has been specified, this may be blank.
+   * @param password Private string defined by the user as the pair to their
+   *   login (if set) for authenticating at the site, in plaintext. If the login
+   *   has been specified, this may be blank.
+   *
+   *   This password **must** be discarded after used.
+   *
    * @param path [Key.path].
    * @return The identifier generated for the stored key.
+   * @see PlainPassword.discard
    */
-  @Throws(StorageException::class, RuntimeException::class)
+  @Throws(
+    IncorrectMainPasswordException::class,
+    StorageException::class,
+    RuntimeException::class)
   suspend fun unlockAndStore(
     title: String,
     login: String,
-    plainPassword: String,
+    password: PlainPassword,
     path: URI?
   ): String {
     val (normalizedTitle, normalizedLogin) =
       Key.validateAndNormalize(title, login)
-    if (normalizedLogin.isEmpty() && plainPassword.isBlank())
+    if (normalizedLogin.isEmpty() && password.isBlank())
       throw StorageException.Insufficient()
     val id = Uuid.generateV7().toString()
-    val salt = Key.newSalt()
+    val salt = Key.newZeroedSalt()
     csprng.nextBytes(salt)
     val derivedPassphrase = unlockAndDerivePassphrase(salt)
-    val iv = Key.newIV()
+    val iv = Key.newZeroedIV()
     csprng.nextBytes(iv)
-    val encryptedPassword =
-      encryptPassword(plainPassword, iv, derivedPassphrase)
-    derivedPassphrase.fill(0)
+    val encryptedPassword = encryptPassword(password, iv, derivedPassphrase)
+    derivedPassphrase.discard()
     val key =
       Key(
         id, normalizedTitle, normalizedLogin, salt, iv, encryptedPassword, path)
@@ -572,7 +579,7 @@ abstract class Keychain {
    * @return The decrypted password, or null if the key is not stored in this
    *   keychain.
    */
-  suspend fun unlockAndGetPassword(keyID: String): String? {
+  suspend fun unlockAndGetPassword(keyID: String): PlainPassword? {
     val key = get(keyID) ?: return null
     return unlockAndDecryptPassword(key)
   }
@@ -622,11 +629,13 @@ abstract class Keychain {
    *   actual one of this keychain, since there might be a typo or the user may
    *   not be the owner of this keychain.
    *
-   *   This password **must** be zeroed after used, since the GC may not be
+   *   This password **must** be discarded after used, since the GC may not be
    *   deterministic and, thus, the password may outlive the scope of the
    *   caller, potentially exposing it to other processes.
+   *
+   * @see PlainPassword.discard
    */
-  protected abstract suspend fun requestMainPassword(): CharArray
+  protected abstract suspend fun requestMainPassword(): PlainPassword
 
   /**
    * Last step of the encryption of the plain password of a key, in which the
@@ -634,14 +643,14 @@ abstract class Keychain {
    * password. Rather than the key's plain password, this is what is stored in a
    * key, alongside the salt for the [derivedPassphrase] and the [iv].
    *
-   * @param plainPassword The password for the key to be stored, in plaintext.
+   * @param password The password for the key to be stored, in plaintext.
    * @param iv 12-byte (96-bit) array generated randomly by the [csprng].
    * @param derivedPassphrase A passphrase returned by
    *   [unlockAndDerivePassphrase].
    * @return The given password, AES-256-GCM-encrypted.
    */
   private fun encryptPassword(
-    plainPassword: String,
+    password: PlainPassword,
     iv: ByteArray,
     derivedPassphrase: ByteArray
   ): ByteArray {
@@ -649,7 +658,7 @@ abstract class Keychain {
     val keySpec = SecretKeySpec(derivedPassphrase, "AES")
     val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, iv)
     cipher.init(Cipher.ENCRYPT_MODE, keySpec, modeSpec)
-    val encryptedPassword = cipher.doFinal(plainPassword.toByteArray())
+    val encryptedPassword = cipher.doFinal(password.encode())
     return encryptedPassword
   }
 
@@ -661,14 +670,15 @@ abstract class Keychain {
    *   keychain (i.e., to *be* or *have been* stored in it), since the
    *   encryption process involved deriving from its keychain's main password.
    */
-  private suspend fun unlockAndDecryptPassword(key: Key): String {
+  private suspend fun unlockAndDecryptPassword(key: Key): PlainPassword {
     val derivedPassphrase = unlockAndDerivePassphrase(key.salt)
-    val cipher = Cipher.getInstance(CIPHER_NAME)
+    val cipher: Cipher = Cipher.getInstance(CIPHER_NAME)
     val keySpec = SecretKeySpec(derivedPassphrase, "AES")
     val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, key.iv)
     cipher.init(Cipher.DECRYPT_MODE, keySpec, modeSpec)
-    val plainPassword = cipher.doFinal(key.encryptedPassword)
-    return plainPassword.toString(Charsets.UTF_8)
+    val encodedPasswordContents: ByteArray =
+      cipher.doFinal(key.encryptedPassword)
+    return PlainPassword.decode(encodedPasswordContents)
   }
 
   /**
@@ -682,8 +692,8 @@ abstract class Keychain {
    *
    * Note that, because garbage collection (GC) in the JVM *may not* be
    * deterministic, the caller exiting scope **does not** guarantee that this
-   * passphrase will be discarded; therefore, this passphrase **must** be zeroed
-   * after used.
+   * passphrase will be discarded; therefore, this passphrase **must** be
+   * discarded after used.
    *
    * @see requestMainPassword
    * @see ByteArray.fill
@@ -694,18 +704,21 @@ abstract class Keychain {
   // which their equivalent of our passphrase is derived.
   //
   // https://agilebits.github.io/security-design/deepKeys.html#combining-with-the-secret-key
+  @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlockAndDerivePassphrase(salt: ByteArray): ByteArray {
     val mainPassword = unlockAndKeepMainPassword()
+    val mainPasswordAsArray = mainPassword.asCharArray()
     val sizeInBits = 256
     val spec =
-      PBEKeySpec(mainPassword, salt, /* iterationCount= */ 1 shl 21, sizeInBits)
+      PBEKeySpec(
+        mainPasswordAsArray, salt, /* iterationCount= */ 1 shl 21, sizeInBits)
 
-    // The array is zeroed because JVM's GC may not be deterministic; this way,
-    // the actual contents of the password remain inaccessible by someone who's,
-    // somehow, able to read the array.
+    // 'mainPasswordAsArray' is discarded because JVM's GC may not be
+    // deterministic; this way, the actual contents of the array remain
+    // inaccessible by someone who's, somehow, able to read the array.
     //
     // 'spec' is not affected by this, given that it makes a copy of it.
-    mainPassword.fill('\u0000')
+    mainPassword.discard(mainPasswordAsArray)
 
     val passphrase =
       SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
@@ -721,13 +734,15 @@ abstract class Keychain {
   }
 
   /**
-   * Alias for calling [unlockAndKeepMainPassword] and zeroing the given
+   * Alias for calling [unlockAndKeepMainPassword] and discarding the given
    * password immediately afterward. For when an operation requires unlocking
    * the keychain, but the password itself is irrelevant.
+   *
+   * @see PlainPassword.discard
    */
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlockAndDiscardMainPassword() =
-    unlockAndKeepMainPassword().fill('\u0000')
+    unlockAndKeepMainPassword().discard()
 
   /**
    * Requests that this keychain be unlocked (if locked) by having its main
@@ -740,7 +755,7 @@ abstract class Keychain {
    *
    * @return The provided, correct main password.
    *
-   *   **Must** be zeroed after used, since JVM's GC may not be deterministic
+   *   **Must** be discarded after used, since JVM's GC may not be deterministic
    *   and, thus, allow for this password to live longer than the caller scope,
    *   potentially making it readable by other processes. In cases in which the
    *   given password would *not* be used, [unlockAndDiscardMainPassword] should
@@ -748,10 +763,11 @@ abstract class Keychain {
    *
    * @see requestMainPassword
    * @see unlockAndGetPassword
+   * @see PlainPassword.discard
    */
   @Throws(IncorrectMainPasswordException::class)
-  private suspend fun unlockAndKeepMainPassword(): CharArray {
-    var requestedMainPassword: CharArray
+  private suspend fun unlockAndKeepMainPassword(): PlainPassword {
+    var requestedMainPassword: PlainPassword
     var unlockAttemptCount = 0
     while (true) {
       requestedMainPassword = requestMainPassword()
@@ -807,13 +823,13 @@ abstract class Keychain {
      */
     @JvmStatic
     @Throws(KeychainException::class)
-    fun validateMainPassword(mainPassword: CharArray) {
+    fun validateMainPassword(mainPassword: PlainPassword) {
       val areMostCharactersWhitespaces = {
         mainPassword.findConsecutions(Char::isWhitespace).any {
-          it.count >= mainPassword.size / 2
+          it.count >= mainPassword.length / 2
         }
       }
-      if (mainPassword.size < 8 || areMostCharactersWhitespaces())
+      if (mainPassword.length < 8 || areMostCharactersWhitespaces())
         throw KeychainException.ShortMainPassword()
     }
   }

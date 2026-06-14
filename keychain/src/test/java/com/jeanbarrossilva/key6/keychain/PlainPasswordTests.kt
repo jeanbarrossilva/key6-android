@@ -19,12 +19,16 @@
 
 package com.jeanbarrossilva.key6.keychain
 
-import assertk.assertFailure
+import assertk.all
 import assertk.assertThat
-import assertk.assertions.hasSize
+import assertk.assertions.containsExactly
+import assertk.assertions.hasLength
 import assertk.assertions.isEmpty
-import assertk.assertions.isInstanceOf
+import assertk.assertions.isEqualTo
 import assertk.assertions.isNotEqualTo
+import assertk.assertions.prop
+import com.jeanbarrossilva.key6.keychain.test.newSample
+import com.jeanbarrossilva.key6.keychain.test.newSampleBackingBuffer
 import com.kevinmost.junit_retry_rule.Retry
 import com.kevinmost.junit_retry_rule.RetryRule
 import java.util.concurrent.ThreadLocalRandom
@@ -33,80 +37,136 @@ import junitparams.Parameters
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.junit.runners.Suite
 
-@RunWith(JUnitParamsRunner::class)
+@RunWith(Suite::class)
+@Suite.SuiteClasses(
+  PlainPasswordTests.CloningTests::class,
+  PlainPasswordTests.CodingTests::class,
+  PlainPasswordTests.ComparisonTests::class,
+  PlainPasswordTests.DiscardingTests::class,
+  PlainPasswordTests.GenerationTests::class)
 internal class PlainPasswordTests {
-  @JvmField @Rule val retryRule = RetryRule()
-
-  @Test
-  fun throwsIfRngIsNull() {
-    assertFailure {
-        PlainPassword.generate(
-          /* rng = */ null,
-          PlainPassword.Letters.NONE,
-          /* allowsDigits = */ false,
-          /* allowsSymbols = */ false,
-          /* length = */ 8)
+  class ComparisonTests {
+    @Test
+    fun equalsOnlyComparesStructurally() {
+      val onePassword = PlainPassword.newSample()
+      assertThat(onePassword).all {
+        val anotherPassword = PlainPassword.newSample()
+        isEqualTo(anotherPassword)
+        anotherPassword.discard()
+        isNotEqualTo(anotherPassword)
       }
-      .isInstanceOf<NullPointerException>()
+    }
   }
 
-  @Parameters("-2", "0")
-  @Test
-  fun returnsEmptyStringIfGeneratingWithLengthZeroOrNegative(length: Int) {
-    val generatedPlainPassword =
-      PlainPassword.generate(
-        rng,
-        PlainPassword.Letters.WITH_DIACRITICS,
-        /* allowsDigits = */ true,
-        /* allowsSymbols = */ true,
-        length)
-    assertThat(generatedPlainPassword).isEmpty()
+  class CodingTests {
+    @Test
+    fun codingIsSymmetric() {
+      val decodedPassword = PlainPassword.newSample()
+      val encodedPassword = decodedPassword.encode()
+      assertThat(PlainPassword)
+        .transform("decode(${encodedPassword.toList()})") {
+          it.decode(encodedPassword)
+        }
+        .isEqualTo(decodedPassword)
+    }
   }
 
-  @Test
-  fun returnsEmptyStringIfGeneratingWithoutCharacterSubset() {
-    val generatedPlainPassword =
-      PlainPassword.generate(
-        rng,
-        PlainPassword.Letters.NONE,
-        /* allowsDigits = */ false,
-        /* allowsSymbols = */ false,
-        /* length = */ 16)
-    assertThat(generatedPlainPassword).isEmpty()
+  class CloningTests {
+    @Test
+    fun originalPasswordIsBackedByBufferIndependentFromThatOfClonedPassword() {
+      val originalPassword = PlainPassword.newSample()
+      val clonedPassword = originalPassword.clone()
+      clonedPassword.discard()
+      assertThat(originalPassword)
+        .prop(PlainPassword::toList)
+        .containsExactly(
+          *PlainPassword.newSampleBackingBuffer().toList().toTypedArray())
+    }
+
+    @Test
+    fun clonedPasswordIsBackedByBufferIndependentFromThatOfOriginalPassword() {
+      val originalPassword = PlainPassword.newSample()
+      val clonedPassword = originalPassword.clone()
+      originalPassword.discard()
+      assertThat(clonedPassword)
+        .prop(PlainPassword::toList)
+        .containsExactly(
+          *PlainPassword.newSampleBackingBuffer().toList().toTypedArray())
+    }
   }
 
-  @Parameters("2", "4", "16")
-  @Test
-  fun generates(length: Int) {
-    val generatedPlainPassword =
-      PlainPassword.generate(
-        rng,
-        PlainPassword.Letters.WITH_DIACRITICS,
-        /* allowsDigits = */ true,
-        /* allowsSymbols = */ true,
-        length)
-    assertThat(generatedPlainPassword).hasSize(length)
+  class DiscardingTests {
+    @Test
+    fun discards() {
+      val password = PlainPassword.newSample()
+      password.discard()
+      assertThat(password).isEmpty()
+    }
   }
 
-  @Retry(times = 4)
-  @Test
-  fun generatesRandomly() {
-    repeat(32) {
-      assertThat(
-          PlainPassword.generate(
-            rng,
-            PlainPassword.Letters.WITH_DIACRITICS,
-            /* allowsDigits = */ true,
-            /* allowsSymbols = */ true,
-            /* length = */ 16))
-        .isNotEqualTo(
-          PlainPassword.generate(
-            rng,
-            PlainPassword.Letters.WITH_DIACRITICS,
-            /* allowsDigits = */ true,
-            /* allowsSymbols = */ true,
-            /* length = */ 16))
+  @RunWith(JUnitParamsRunner::class)
+  class GenerationTests {
+    @JvmField @Rule val retryRule = RetryRule()
+
+    @Parameters("-2", "0")
+    @Test
+    fun returnsEmptyStringIfGeneratingWithLengthZeroOrNegative(length: Int) {
+      val generatedPassword =
+        PlainPassword.generate(
+          rng,
+          PlainPassword.Letters.WITH_DIACRITICS,
+          allowsDigits = true,
+          allowsSymbols = true,
+          length)
+      assertThat(generatedPassword).isEmpty()
+    }
+
+    @Test
+    fun returnsEmptyStringIfGeneratingWithoutCharacterSubset() {
+      val generatedPassword =
+        PlainPassword.generate(
+          rng,
+          PlainPassword.Letters.NONE,
+          allowsDigits = false,
+          allowsSymbols = false,
+          length = 16)
+      assertThat(generatedPassword).isEmpty()
+    }
+
+    @Parameters("2", "4", "16")
+    @Test
+    fun generates(length: Int) {
+      val generatedPassword =
+        PlainPassword.generate(
+          rng,
+          PlainPassword.Letters.WITH_DIACRITICS,
+          allowsDigits = true,
+          allowsSymbols = true,
+          length)
+      assertThat(generatedPassword).hasLength(length)
+    }
+
+    @Retry(times = 4)
+    @Test
+    fun generatesRandomly() {
+      repeat(32) {
+        assertThat(
+            PlainPassword.generate(
+              rng,
+              PlainPassword.Letters.WITH_DIACRITICS,
+              allowsDigits = true,
+              allowsSymbols = true,
+              length = 16))
+          .isNotEqualTo(
+            PlainPassword.generate(
+              rng,
+              PlainPassword.Letters.WITH_DIACRITICS,
+              allowsDigits = true,
+              allowsSymbols = true,
+              length = 16))
+      }
     }
   }
 
