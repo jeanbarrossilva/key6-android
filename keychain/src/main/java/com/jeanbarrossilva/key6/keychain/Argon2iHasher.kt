@@ -20,7 +20,6 @@
 package com.jeanbarrossilva.key6.keychain
 
 import br.com.orcinus.orca.ext.reflection.java.access
-import java.nio.CharBuffer
 import java.security.SecureRandom
 import kotlin.math.min
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder
@@ -45,10 +44,9 @@ import org.springframework.security.crypto.keygen.BytesKeyGenerator
 // 3) its encoder method accepts not an array, but a sequence of characters.
 //    This isn't necessarily a problem, as a 'CharSequence' isn't necessarily a
 //    'String'—but it can be one, which would probably be a security loophole.
-//    We take care of it by requesting an array from the caller, and converting
-//    that array into a sequence with our 'CharArray.asCharSequence()'
-//    extension. That extension, in turn, takes care of the potential
-//    interdependence between the array and the produced sequence.
+//    We take care of it by requesting a 'PlainPassword' from the caller, which
+//    takes care of the potential interdependence between the password's buffer
+//    and the 'CharArray' backing that buffer.
 
 /**
  * Hasher of passwords in plaintext that uses the Argon2i function.
@@ -87,7 +85,7 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
     override fun getKeyLength() = SALT_LENGTH_IN_BYTES
 
     override fun generateKey(): ByteArray {
-      val salt = newSalt()
+      val salt = newZeroedSalt()
       csprng.nextBytes(salt)
       return salt
     }
@@ -111,10 +109,10 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
    * @param password The password to hash, in plaintext.
    * @see Runtime.freeAvailableMemory
    */
-  fun hash(password: CharArray) {
+  fun hash(password: PlainPassword) {
     initEncoder()
     lastHash =
-      checkNotNull(encoder.encode(password.asCharSequence())) {
+      checkNotNull(encoder.encode(password)) {
         "Encoder returned a null hash, even though the given password was " +
           "not null. This may be a bug in the library; to circumvent it: " +
           "find a workaround; use another library; or implement Argon2i " +
@@ -130,14 +128,14 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
    *
    * @param password Password to check against the hashed one.
    */
-  fun isMatch(password: CharArray): Boolean {
+  fun isMatch(password: PlainPassword): Boolean {
     // 'lastHash' being uninitialized also denotes that the encoder is
     // uninitialized, and the contrary is equally true. Therefore, going past
     // this conditional and, consequently, referencing the encoder will never
     // throw an exception.
     if (!::lastHash.isInitialized) return false
 
-    return encoder.matches(password.asCharSequence(), lastHash)
+    return encoder.matches(password, lastHash)
   }
 
   /**
@@ -178,18 +176,6 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
      * Instantiates an empty array to be filled with a salt for hashing a
      * password.
      */
-    @JvmStatic fun newSalt() = ByteArray(SALT_LENGTH_IN_BYTES)
+    @JvmStatic fun newZeroedSalt() = ByteArray(SALT_LENGTH_IN_BYTES)
   }
 }
-
-/**
- * Returns a [CharSequence] that *may* be backed by this array.
- *
- * This method will return a sequence backed by this array only if this array is
- * populated: in such case, writes to this array *will* reflect on the returned
- * sequence. This is useful when this array contains sensitive information: it
- * can be altered or zeroed afterward to prevent other processes from reading
- * it.
- */
-private fun CharArray.asCharSequence(): CharSequence =
-  if (isEmpty()) "" else CharBuffer.wrap(this)

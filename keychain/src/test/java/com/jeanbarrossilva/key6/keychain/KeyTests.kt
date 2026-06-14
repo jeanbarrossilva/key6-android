@@ -39,7 +39,7 @@ import org.junit.runner.RunWith
 internal class KeyTests {
   @Test
   fun instantiatesZeroed16ByteSalt() {
-    val salt = Keychain.Key.newSalt()
+    val salt = Keychain.Key.newZeroedSalt()
     assertThat(salt).all {
       hasSize(16)
       containsOnly(0)
@@ -48,7 +48,7 @@ internal class KeyTests {
 
   @Test
   fun instantiatesZeroed12ByteIV() {
-    val iv = Keychain.Key.newIV()
+    val iv = Keychain.Key.newZeroedIV()
     assertThat(iv).all {
       hasSize(12)
       containsOnly(0)
