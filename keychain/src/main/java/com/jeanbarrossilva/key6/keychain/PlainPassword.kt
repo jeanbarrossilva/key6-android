@@ -324,7 +324,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
   internal fun discard(charArray: CharArray) {
     // There being an array denotes that the return of the password–array
     // conversion *is* the backing array of this password's buffer (assuming
-    // that given array has been returned by 'asCharArray()', 'characters' ===
+    // that given array has been returned by 'asCharArray()', 'charArray' ===
     // 'toCharArray()' === 'backingBuffer.array()'); no need to proceed with the
     // O(n) array-discarding.
     if (hasArray) return
