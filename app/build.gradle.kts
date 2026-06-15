@@ -19,6 +19,7 @@
 
 plugins {
   alias(libs.plugins.android.application)
+  alias(libs.plugins.kotlin.symbolProcessor)
 }
 
 android {
@@ -35,13 +36,17 @@ android {
 }
 
 dependencies {
-  androidTestImplementation(libs.android.test.espresso.core)
-  androidTestImplementation(libs.android.test.junit)
   implementation(project(":feature:locket"))
   implementation(libs.android.appcompat)
   implementation(libs.android.core)
   implementation(libs.android.navigation.fragment)
   implementation(libs.android.navigation.ui)
+  implementation(libs.android.room)
   implementation(libs.material)
+  ksp(libs.android.room.compiler)
+  testImplementation(libs.android.test.core)
+  testImplementation(libs.assertk)
   testImplementation(libs.jUnit)
+  testImplementation(libs.kotlin.coroutines.test)
+  testImplementation(libs.robolectric)
 }
