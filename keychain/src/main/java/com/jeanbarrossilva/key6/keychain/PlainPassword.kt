@@ -21,9 +21,13 @@
 
 package com.jeanbarrossilva.key6.keychain
 
+import java.nio.Buffer
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.util.Random
+import kotlin.contracts.ExperimentalContracts
+import kotlin.contracts.InvocationKind
+import kotlin.contracts.contract
 
 /**
  * Secret for authenticating at a site, in plaintext (i.e., non-encrypted and/or
@@ -260,8 +264,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    */
   fun discard() {
     if (isEmpty()) return
-    if (hasArray) backingBuffer.array().discard()
-    backingBuffer.rewind().limit(0)
+    backingBuffer.discard()
   }
 
   /**
@@ -280,14 +283,17 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     else {
       val encodedPasswordBuffer = charset.encode(backingBuffer)
       backingBuffer.rewind()
-      encodedPasswordBuffer
-        // This array, by itself, is padded by 16 bytes; this implies
-        // in its size being greater than the actual amount of UTF-16-encoded
-        // characters in it. We trim that padding by returning a slice ranging
-        // from the start of the array to the limit of the buffer—which is the
-        // size of the array without the trailing padding.
-        .array()
-        .sliceArray(0..<encodedPasswordBuffer.limit())
+      val encodedPassword =
+        encodedPasswordBuffer
+          // This array, by itself, is padded by 16 bytes; this implies
+          // in its size possibly being greater than the actual amount of
+          // UTF-16-encoded characters in it. We trim the trailing padding by
+          // returning a slice ranging from the start to the limit of the
+          // buffer.
+          .array()
+          .sliceArray(0..<encodedPasswordBuffer.limit())
+      encodedPasswordBuffer.discard()
+      encodedPassword
     }
 
   /**
@@ -433,9 +439,10 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
   }
 }
 
-// Yes, there are the '*Array.fill(Char)' functions. However, one of my defects
-// is that I *love* micro-optimizing, and they may perform a range check first;
-// our index is never out of bounds, so that check is unnecessary.
+// On '*Array.discard()': yes, Kotlin provides '*Array.fill(Char)'. However,
+// one of my weaknesses is that I *love* micro-optimizing, and these "fill"
+// functions may perform a range check first; our indices are never out of
+// bounds, so that check is unnecessary.
 
 /** Fills this array with NUL bytes. */
 internal fun ByteArray.discard() {
@@ -445,6 +452,41 @@ internal fun ByteArray.discard() {
 /** Fills this array with NUL characters. */
 internal fun CharArray.discard() {
   for (index in 0..<size) this[index] = '\u0000'
+}
+
+/**
+ * Rewinds this buffer, zeroes its limit, and discards its backing array (if
+ * any).
+ *
+ * @param ByteArray.discard
+ */
+private fun ByteBuffer.discard() = discard { array().discard() }
+
+/**
+ * Rewinds this buffer, zeroes its limit, and discards its backing array (if
+ * any).
+ *
+ * @param CharArray.discard
+ */
+private fun CharBuffer.discard() = discard { array().discard() }
+
+/**
+ * This method centralizes the operations common to the discarding of any type
+ * of buffer: rewinding and limit-zeroing. Discarding this buffer's backing
+ * array is delegated to the [discardArray] function.
+ *
+ * @param discardArray Discards this buffer's backing array. Calling
+ *   [array][Buffer.array] in this function is guaranteed to not throw, since it
+ *   will be invoked only if this buffer is backed by an array.
+ */
+@OptIn(ExperimentalContracts::class)
+private inline fun <BufferType> BufferType.discard(
+  discardArray: () -> Unit
+): BufferType where BufferType : Buffer {
+  contract { callsInPlace(discardArray, InvocationKind.AT_MOST_ONCE) }
+  rewind().limit(0)
+  if (hasArray()) discardArray()
+  return this
 }
 
 /**
