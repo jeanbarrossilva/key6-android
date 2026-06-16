@@ -318,7 +318,6 @@ abstract class Keychain {
    *   password-protected compressed file), etc.
    */
   class Key
-  @Throws(StorageException::class)
   internal constructor(
     val id: String,
     val title: String,

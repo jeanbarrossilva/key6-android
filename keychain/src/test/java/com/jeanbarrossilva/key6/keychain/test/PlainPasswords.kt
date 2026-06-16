@@ -22,34 +22,58 @@
 package com.jeanbarrossilva.key6.keychain.test
 
 import com.jeanbarrossilva.key6.keychain.PlainPassword
+import com.jeanbarrossilva.key6.keychain.discard
+import java.nio.ByteBuffer
 import java.nio.CharBuffer
+import java.util.Random
+import java.util.concurrent.ThreadLocalRandom
 
-/**
- * Instantiates a sample password for testing, whose buffer is one returned by
- * [newSampleBackingBuffer].
- */
-internal fun PlainPassword.Companion.newSample() =
-  PlainPassword(newSampleBackingBuffer())
+/** Amount of characters in a password generated for testing purposes. */
+private const val LENGTH = 128
 
-/**
- * Produces a populated backing buffer of a plain password for testing. Despite
- * being distinct instances, the contents of unmodified buffers returned by two
- * calls to this method will be equal, such that
- *
- * - `newBackingBuffer() !== newBackingBuffer()`; and
- * - `newBackingBuffer().contentEquals(newBackingBuffer())`.
- */
-internal fun PlainPassword.Companion.newSampleBackingBuffer(): CharBuffer {
-  val backingBuffer = CharBuffer.allocate(9)
-  backingBuffer.put('a')
-  backingBuffer.put('p')
-  backingBuffer.put('p')
-  backingBuffer.put('l')
-  backingBuffer.put('e')
-  backingBuffer.put('s')
-  backingBuffer.put('e')
-  backingBuffer.put('e')
-  backingBuffer.put('d')
-  backingBuffer.rewind()
-  return backingBuffer
+/** Alphabet indexed by the [rng] for generating random passwords in tests. */
+private val generationAlphabet =
+  PlainPassword.newGenerationAlphabet(
+    PlainPassword.Letters.WITHOUT_DIACRITICS,
+    allowsDigits = true,
+    allowsSymbols = true)
+
+/** Instantiates a random password backed by a direct buffer. */
+internal fun PlainPassword.Companion.newRandomWithDirectBuffer() =
+  PlainPassword(newDirectRandomBackingBuffer())
+
+/** Instantiates a random password backed by a non-direct buffer. */
+internal fun PlainPassword.Companion.newRandomWithNonDirectBuffer() =
+  PlainPassword(newNonDirectRandomBackingBuffer())
+
+/** Instantiates a randomly-populated, non-direct buffer of a plain password. */
+internal fun PlainPassword.Companion.newNonDirectRandomBackingBuffer():
+  CharBuffer {
+  val encodedPasswordBuffer = charset.encode(newDirectRandomBackingBuffer())
+  val backingBuffer: ByteBuffer =
+    ByteBuffer.allocateDirect(encodedPasswordBuffer.limit())
+  while (encodedPasswordBuffer.hasRemaining()) {
+    val index = encodedPasswordBuffer.position()
+    backingBuffer.put(encodedPasswordBuffer[index])
+    encodedPasswordBuffer.put(index, 0)
+    encodedPasswordBuffer.position(index + 1)
+  }
+  encodedPasswordBuffer.discard {}
+  return backingBuffer.rewind().asCharBuffer()
 }
+
+/** Instantiates a randomly-populated, direct buffer of a plain password. */
+internal fun PlainPassword.Companion.newDirectRandomBackingBuffer() =
+  newPopulatedGenerationBackingBuffer(rng(), generationAlphabet, LENGTH)
+
+/** Instantiates a randomly-populated backing array of a plain password. */
+internal fun PlainPassword.Companion.newRandomBackingArray(): CharArray {
+  val rng = rng()
+  val backingArray = CharArray(LENGTH)
+  for (index in 0..<backingArray.size) backingArray[index] =
+    generationAlphabet[rng.nextInt(generationAlphabet.size)]
+  return backingArray
+}
+
+/** Obtains the RNG responsible for generating random passwords in tests. */
+private fun rng(): Random = ThreadLocalRandom.current()

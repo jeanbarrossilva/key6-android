@@ -26,11 +26,16 @@ import assertk.assertions.hasLength
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
 import assertk.assertions.isNotEqualTo
+import assertk.assertions.isNotSameInstanceAs
+import assertk.assertions.isSameInstanceAs
 import assertk.assertions.prop
-import com.jeanbarrossilva.key6.keychain.test.newSample
-import com.jeanbarrossilva.key6.keychain.test.newSampleBackingBuffer
+import com.jeanbarrossilva.key6.keychain.test.newRandomBackingArray
+import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.test.newRandomWithNonDirectBuffer
 import com.kevinmost.junit_retry_rule.Retry
 import com.kevinmost.junit_retry_rule.RetryRule
+import java.nio.CharBuffer
+import java.util.Random
 import java.util.concurrent.ThreadLocalRandom
 import junitparams.JUnitParamsRunner
 import junitparams.Parameters
@@ -41,21 +46,49 @@ import org.junit.runners.Suite
 
 @RunWith(Suite::class)
 @Suite.SuiteClasses(
+  PlainPasswordTests.CharArrayConversion::class,
   PlainPasswordTests.CloningTests::class,
   PlainPasswordTests.CodingTests::class,
   PlainPasswordTests.ComparisonTests::class,
   PlainPasswordTests.DiscardingTests::class,
   PlainPasswordTests.GenerationTests::class)
 internal class PlainPasswordTests {
+  class CharArrayConversion {
+    @Test
+    fun asCharArrayReturnsTheEmptyBackingArrayIfThePasswordIsEmpty() =
+      assertThat(PlainPassword.newEmpty())
+        .prop(PlainPassword::asCharArray)
+        .all {
+          isEmpty()
+          isSameInstanceAs(PlainPassword.newEmpty().asCharArray())
+        }
+
+    @Test
+    fun asCharArrayReturnsTheBackingArrayIfThePasswordHasOne() {
+      val backingArray = PlainPassword.newRandomBackingArray()
+      assertThat(PlainPassword(CharBuffer.wrap(backingArray)))
+        .prop(PlainPassword::asCharArray)
+        .isSameInstanceAs(backingArray)
+    }
+
+    @Test
+    fun asCharArrayReturnsNewlyInstantiatedArrayIfThePasswordIsNeitherEmptyNorHasOne() {
+      val password = PlainPassword.newRandomWithNonDirectBuffer()
+      assertThat(password)
+        .prop(PlainPassword::asCharArray)
+        .isNotSameInstanceAs(password.asCharArray())
+    }
+  }
+
   class ComparisonTests {
     @Test
     fun equalsOnlyComparesStructurally() {
-      val onePassword = PlainPassword.newSample()
-      assertThat(onePassword).all {
-        val anotherPassword = PlainPassword.newSample()
-        isEqualTo(anotherPassword)
-        anotherPassword.discard()
-        isNotEqualTo(anotherPassword)
+      val originalPassword = PlainPassword.newRandomWithDirectBuffer()
+      val clonedPassword = originalPassword.clone()
+      assertThat(originalPassword).all {
+        isEqualTo(clonedPassword)
+        clonedPassword.discard()
+        isNotEqualTo(clonedPassword)
       }
     }
   }
@@ -63,7 +96,7 @@ internal class PlainPasswordTests {
   class CodingTests {
     @Test
     fun codingIsSymmetric() {
-      val decodedPassword = PlainPassword.newSample()
+      val decodedPassword = PlainPassword.newRandomWithDirectBuffer()
       val encodedPassword = decodedPassword.encode()
       assertThat(PlainPassword)
         .transform("decode(${encodedPassword.toList()})") {
@@ -76,31 +109,31 @@ internal class PlainPasswordTests {
   class CloningTests {
     @Test
     fun originalPasswordIsBackedByBufferIndependentFromThatOfClonedPassword() {
-      val originalPassword = PlainPassword.newSample()
+      val originalPassword = PlainPassword.newRandomWithDirectBuffer()
       val clonedPassword = originalPassword.clone()
+      val clonedContents = clonedPassword.newCharArray()
       clonedPassword.discard()
       assertThat(originalPassword)
         .prop(PlainPassword::toList)
-        .containsExactly(
-          *PlainPassword.newSampleBackingBuffer().toList().toTypedArray())
+        .containsExactly(*clonedContents.toTypedArray())
     }
 
     @Test
     fun clonedPasswordIsBackedByBufferIndependentFromThatOfOriginalPassword() {
-      val originalPassword = PlainPassword.newSample()
+      val originalPassword = PlainPassword.newRandomWithDirectBuffer()
+      val originalContents = originalPassword.newCharArray()
       val clonedPassword = originalPassword.clone()
       originalPassword.discard()
       assertThat(clonedPassword)
-        .prop(PlainPassword::toList)
-        .containsExactly(
-          *PlainPassword.newSampleBackingBuffer().toList().toTypedArray())
+        .prop(PlainPassword::asCharArray)
+        .containsExactly(*originalContents)
     }
   }
 
   class DiscardingTests {
     @Test
     fun discards() {
-      val password = PlainPassword.newSample()
+      val password = PlainPassword.newRandomWithDirectBuffer()
       password.discard()
       assertThat(password).isEmpty()
     }
@@ -151,26 +184,22 @@ internal class PlainPasswordTests {
     @Retry(times = 4)
     @Test
     fun generatesRandomly() {
+      val letters = PlainPassword.Letters.WITH_DIACRITICS
+      val allowsDigits = true
+      val allowsSymbols = true
+      val length = 16
       repeat(32) {
         assertThat(
             PlainPassword.generate(
-              rng,
-              PlainPassword.Letters.WITH_DIACRITICS,
-              allowsDigits = true,
-              allowsSymbols = true,
-              length = 16))
+              rng, letters, allowsDigits, allowsSymbols, length))
           .isNotEqualTo(
             PlainPassword.generate(
-              rng,
-              PlainPassword.Letters.WITH_DIACRITICS,
-              allowsDigits = true,
-              allowsSymbols = true,
-              length = 16))
+              rng, letters, allowsDigits, allowsSymbols, length))
       }
     }
   }
 
   private companion object {
-    @JvmStatic val rng: ThreadLocalRandom = ThreadLocalRandom.current()
+    @JvmStatic val rng: Random = ThreadLocalRandom.current()
   }
 }

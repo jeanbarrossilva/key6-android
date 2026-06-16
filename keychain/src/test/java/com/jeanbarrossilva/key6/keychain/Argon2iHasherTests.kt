@@ -22,7 +22,8 @@ package com.jeanbarrossilva.key6.keychain
 import assertk.assertThat
 import assertk.assertions.isFalse
 import assertk.assertions.isTrue
-import com.jeanbarrossilva.key6.keychain.test.newSample
+import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
+import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -33,7 +34,7 @@ internal class Argon2iHasherTests {
   @Test
   fun returnsFalseUponMatchAgainstUnhashedPassword() {
     val hasher = newHasher()
-    val password = PlainPassword.newSample()
+    val password = PlainPassword.newRandomWithDirectBuffer()
     assertThat(hasher)
       .transform("matches(${password.toList()})") { it.isMatch(password) }
       .isFalse()
@@ -48,15 +49,16 @@ internal class Argon2iHasherTests {
         ourCsprng.nextBytes(firstArg())
       }
     val hasher = newHasher(hasherCsprng)
-    val password = PlainPassword.newSample()
+    val password = PlainPassword.newRandomWithDirectBuffer()
     hasher.hash(password)
     verify { hasherCsprng.nextBytes(any()) }
+    clearMocks(hasherCsprng)
   }
 
   @Test
   fun returnsTrueIfPasswordIsMatchedAgainstHashedEqualOne() {
     val hasher = newHasher()
-    val password = PlainPassword.newSample()
+    val password = PlainPassword.newRandomWithDirectBuffer()
     hasher.hash(password)
     assertThat(hasher)
       .transform("matches(${password.toList()})") { it.isMatch(password) }

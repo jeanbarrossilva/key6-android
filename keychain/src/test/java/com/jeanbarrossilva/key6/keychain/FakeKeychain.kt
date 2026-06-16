@@ -19,7 +19,7 @@
 
 package com.jeanbarrossilva.key6.keychain
 
-import java.util.concurrent.ThreadLocalRandom
+import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
 
 /**
  * In-memory keychain for testing purposes. Provides main passwords based on the
@@ -98,16 +98,10 @@ private constructor(internal val mainPassword: PlainPassword) :
   }
 
   companion object {
-    /** Instantiates an unsecure keychain with a pseudorandom main password. */
+    /** Instantiates an unsecure keychain with a random main password. */
     @JvmStatic
     fun withRandomMainPassword() =
-      withMainPassword(
-        PlainPassword.generate(
-          ThreadLocalRandom.current(),
-          PlainPassword.Letters.WITH_DIACRITICS,
-          allowsDigits = true,
-          allowsSymbols = true,
-          length = 8))
+      withMainPassword(PlainPassword.newRandomWithDirectBuffer())
 
     /**
      * Instantiates this type of keychain with its main password specified in

@@ -21,6 +21,8 @@
 
 package com.jeanbarrossilva.key6.keychain
 
+import com.jeanbarrossilva.key6.keychain.PlainPassword.Companion.decode
+import com.jeanbarrossilva.key6.keychain.PlainPassword.Companion.generate
 import java.nio.Buffer
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
@@ -33,8 +35,8 @@ import kotlin.contracts.contract
  * Secret for authenticating at a site, in plaintext (i.e., non-encrypted and/or
  * non-hashed).
  *
- * @property backingBuffer Buffer of characters which compose this plain
- *   password. Changes to it affect the contents of the password.
+ * @property backingBuffer Buffer of characters which compose this password.
+ *   Changes to it affect the contents of this password.
  */
 @JvmInline
 value class PlainPassword(private val backingBuffer: CharBuffer) :
@@ -49,13 +51,13 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     get() = backingBuffer.hasArray()
 
   /**
-   * Selector of letters (including none) that a plain, generated password can
+   * Selector of letters (including none) that a randomly-generated password can
    * include.
    */
   enum class Letters {
     /** No letters will be included. */
     NONE {
-      override val subset: CharArray = empty.backingBuffer.array()
+      override val subset = charArrayOf()
     },
 
     /** Only letters without combining diacritics may be included. */
@@ -253,8 +255,8 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    */
   fun clone(): PlainPassword {
     if (isEmpty()) return empty
-    val clonedBackingBuffer = backingBuffer.clone()
-    return PlainPassword(clonedBackingBuffer)
+    val bufferDuplicate = backingBuffer.deepDuplicate()
+    return PlainPassword(bufferDuplicate)
   }
 
   /**
@@ -283,15 +285,16 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     else {
       val encodedPasswordBuffer = charset.encode(backingBuffer)
       backingBuffer.rewind()
-      val encodedPassword =
-        encodedPasswordBuffer
-          // This array, by itself, is padded by 16 bytes; this implies
-          // in its size possibly being greater than the actual amount of
-          // UTF-16-encoded characters in it. We trim the trailing padding by
-          // returning a slice ranging from the start to the limit of the
-          // buffer.
-          .array()
-          .sliceArray(0..<encodedPasswordBuffer.limit())
+      var encodedPassword = encodedPasswordBuffer.array()
+      val encodedPasswordLength = encodedPasswordBuffer.limit()
+
+      // 'encodedPassword', as-is, is padded by 16 bytes; this implies in its
+      // size possibly being greater than the actual amount of UTF-16-encoded
+      // characters in it. We trim the trailing padding by returning a slice
+      // ranging from the start to the limit of the buffer.
+      if (encodedPassword.size > encodedPasswordLength)
+        encodedPassword = encodedPassword.sliceArray(0..<encodedPasswordLength)
+
       encodedPasswordBuffer.discard()
       encodedPassword
     }
@@ -300,19 +303,25 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    * Returns an array containing the characters of this password.
    *
    * @return If:
-   * - this password is empty, the same empty array;
-   * - else, if this password has an array, that backing array;
-   * - else, a newly-instantiated array, filled with the contents of this
-   *   password.
+   * - this password has an array, such backing array; or
+   * - this password is empty, the same empty array; or
+   * - a newly-instantiated array, filled with the contents of this password.
    *
    * In the latter case, `discard(CharArray)`—rather than `discard()`—**must**
    * be called afterward: because the array was instantiated by this method and,
    * thus, **does not** back this password, discarding without passing the array
    * in will result in the password still being in the array.
    */
-  internal fun asCharArray(): CharArray {
-    if (isEmpty()) return empty.backingBuffer.array()
-    if (hasArray) return backingBuffer.array()
+  internal fun asCharArray() =
+    if (hasArray) backingBuffer.array()
+    else if (isEmpty()) Letters.NONE.subset else newCharArray()
+
+  /**
+   * Instantiates an array containing the characters of this password. Differs
+   * from [asCharArray] in that a new array is allocated *invariably*,
+   * disregarding whether this password has one.
+   */
+  internal fun newCharArray(): CharArray {
     val charArray = CharArray(length)
     for (index in 0..<charArray.size) charArray[index] = this[index]
     return charArray
@@ -339,22 +348,22 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
   }
 
   companion object {
-    /** Plain password without contents. */
-    @JvmStatic private val empty = PlainPassword(CharBuffer.allocate(0))
+    /** Charset for encoding and decoding passwords: UTF-16. */
+    @JvmStatic internal val charset = Charsets.UTF_16
 
-    /** Charset in which plain passwords are coded: UTF-16. */
-    private val charset = Charsets.UTF_16
+    /** Password without contents. */
+    @JvmStatic private val empty = newEmpty()
 
     /** Numbers 0–9 as characters. */
     @JvmStatic
-    private val digitSubset =
+    private val digits =
       charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
 
     /**
      * Punctuation and other characters deemed special and printable in ASCII.
      */
     @JvmStatic
-    private val symbolSubset =
+    private val symbols =
       charArrayOf(
         '!',
         '"',
@@ -389,6 +398,12 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
         '}',
         '~')
 
+    /** Instantiates a password without contents. */
+    internal fun newEmpty(): PlainPassword {
+      val backingArray: CharBuffer = ByteBuffer.allocateDirect(0).asCharBuffer()
+      return PlainPassword(backingArray)
+    }
+
     /**
      * Instantiates a password from a [ByteArray], containing the bytes resulted
      * from encoding the characters of the original password.
@@ -407,13 +422,12 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
      * **NOTE**: To ensure that other processes cannot read the generated
      * password, discard it immediately after it has been used.
      *
-     * @param rng Random number generator (RNG) for indexing the password's
-     *   characters.
-     * @param allowsDigits Whether the password may contain numbers.
-     * @param allowsSymbols Whether the password may contain non-alphanumeric
-     *   characters.
-     * @param length Length of the password.
-     * @return The generated plain password, empty in case [length] ≤ 0.
+     * @param rng RNG for indexing the characters.
+     * @param letters Selector of letters that may be included.
+     * @param allowsDigits Whether numbers may be included.
+     * @param allowsSymbols Whether non-alphanumeric characters may be included.
+     * @param length Amount of characters to generate.
+     * @return The generated password. Empty in case [length] ≤ 0.
      * @see discard
      */
     @JvmStatic
@@ -425,68 +439,74 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       length: Int
     ): PlainPassword {
       if (length <= 0) return empty
-      val alphabet =
-        letters.subset +
-          (if (allowsDigits) digitSubset else charArrayOf()) +
-          (if (allowsSymbols) symbolSubset else charArrayOf())
+      val alphabet = newGenerationAlphabet(letters, allowsDigits, allowsSymbols)
       if (alphabet.isEmpty()) return empty
-      val backingBuffer = CharBuffer.allocate(length)
-      for (index in 0..<length) backingBuffer.put(
-        index, alphabet[rng.nextInt(alphabet.size)])
+      return PlainPassword(
+        newPopulatedGenerationBackingBuffer(rng, alphabet, length))
+    }
+
+    /**
+     * Returns an alphabet containing all subsets according to the given
+     * generation configuration. These are all the characters by which a
+     * password generated with such parameter set may be composed, with indexing
+     * being performed by some RNG afterward.
+     *
+     * @param letters Selector of letters that may be included.
+     * @param allowsDigits Whether numbers may be included.
+     * @param allowsSymbols Whether non-alphanumeric characters may be included.
+     * @see generate
+     */
+    @JvmStatic
+    internal fun newGenerationAlphabet(
+      letters: Letters,
+      allowsDigits: Boolean,
+      allowsSymbols: Boolean
+    ): CharArray {
+      // 'CharArray.plus(CharArray)' is not used here because such function
+      // copies *eagerly*, without checking whether either array is or the
+      // resulting union will be empty.
+      val size =
+        letters.subset.size +
+          (if (allowsDigits) digits.size else 0) +
+          (if (allowsSymbols) symbols.size else 0)
+      if (size == 0) return Letters.NONE.subset
+      val alphabet = CharArray(size)
+      System.arraycopy(letters.subset, 0, alphabet, 0, letters.subset.size)
+      if (allowsDigits)
+        System.arraycopy(digits, 0, alphabet, letters.subset.size, digits.size)
+      if (allowsSymbols)
+        System.arraycopy(
+          symbols, 0, alphabet, alphabet.size - symbols.size, symbols.size)
+      return alphabet
+    }
+
+    /**
+     * Allocates a new buffer, filling it with characters from the given
+     * alphabet.
+     *
+     * @param rng RNG for indexing the alphabet.
+     * @param alphabet Subsets with characters allowed to be in the buffer.
+     * @param capacity Amount of characters to fill the buffer with. Because
+     *   this method is only intended to be called internally, this integer is
+     *   assumed to be positive.
+     * @see generate
+     */
+    @JvmStatic
+    internal fun newPopulatedGenerationBackingBuffer(
+      rng: Random,
+      alphabet: CharArray,
+      capacity: Int
+    ): CharBuffer {
+      assert(capacity > 0) {
+        "Capacity of buffer for generated plain password should be positive."
+      }
+      val backingBuffer: CharBuffer = CharBuffer.allocate(capacity)
+      while (backingBuffer.hasRemaining()) backingBuffer.put(
+        alphabet[rng.nextInt(alphabet.size)])
       backingBuffer.rewind()
-      return PlainPassword(backingBuffer)
+      return backingBuffer
     }
   }
-}
-
-// On '*Array.discard()': yes, Kotlin provides '*Array.fill(Char)'. However,
-// one of my weaknesses is that I *love* micro-optimizing, and these "fill"
-// functions may perform a range check first; our indices are never out of
-// bounds, so that check is unnecessary.
-
-/** Fills this array with NUL bytes. */
-internal fun ByteArray.discard() {
-  for (index in 0..<size) this[index] = 0
-}
-
-/** Fills this array with NUL characters. */
-internal fun CharArray.discard() {
-  for (index in 0..<size) this[index] = '\u0000'
-}
-
-/**
- * Rewinds this buffer, zeroes its limit, and discards its backing array (if
- * any).
- *
- * @param ByteArray.discard
- */
-private fun ByteBuffer.discard() = discard { array().discard() }
-
-/**
- * Rewinds this buffer, zeroes its limit, and discards its backing array (if
- * any).
- *
- * @param CharArray.discard
- */
-private fun CharBuffer.discard() = discard { array().discard() }
-
-/**
- * This method centralizes the operations common to the discarding of any type
- * of buffer: rewinding and limit-zeroing. Discarding this buffer's backing
- * array is delegated to the [discardArray] function.
- *
- * @param discardArray Discards this buffer's backing array. Calling
- *   [array][Buffer.array] in this function is guaranteed to not throw, since it
- *   will be invoked only if this buffer is backed by an array.
- */
-@OptIn(ExperimentalContracts::class)
-private inline fun <BufferType> BufferType.discard(
-  discardArray: () -> Unit
-): BufferType where BufferType : Buffer {
-  contract { callsInPlace(discardArray, InvocationKind.AT_MOST_ONCE) }
-  rewind().limit(0)
-  if (hasArray()) discardArray()
-  return this
 }
 
 /**
@@ -496,11 +516,62 @@ private inline fun <BufferType> BufferType.discard(
  * To instantiate another buffer with shared contents, call
  * [duplicate][CharBuffer.duplicate] instead.
  */
-private fun CharBuffer.clone(): CharBuffer {
-  val clone = CharBuffer.allocate(capacity())
-  if (clone.capacity() == 0) return clone
-  for (index in 0..<length) clone.put(index, this[index])
-  clone.position(position())
-  clone.limit(limit())
-  return clone
+internal fun CharBuffer.deepDuplicate(): CharBuffer {
+  val duplicate: CharBuffer = CharBuffer.allocate(capacity())
+  if (duplicate.capacity() == 0) return duplicate
+  for (index in 0..<length) duplicate.put(index, this[index])
+  duplicate.position(position())
+  duplicate.limit(limit())
+  return duplicate
 }
+
+// On '*Array.discard()': yes, Kotlin provides '*Array.fill(Char)'. However,
+// one of my weaknesses is that I *love* micro-optimizing, and these "fill"
+// functions may perform a range check first; our indices are never out of
+// bounds, so that check is unnecessary.
+
+/** Fills this array with NUL characters. */
+internal fun CharArray.discard() {
+  for (index in 0..<size) this[index] = '\u0000'
+}
+
+/** Fills this array with NUL bytes. */
+internal fun ByteArray.discard() {
+  for (index in 0..<size) this[index] = 0
+}
+
+/**
+ * This method centralizes the operations common to the discarding of any type
+ * of buffer: rewinding and limit-zeroing. Discarding this buffer's backing
+ * array is delegated to the [discardArray] function.
+ *
+ * @param discardArray Discards this buffer's backing array. Calling
+ *   [array][Buffer.array] in this function *may* throw; before attempting to
+ *   retrieve this buffer's backing array, ensure that it has one.
+ * @see Buffer.hasArray
+ */
+@OptIn(ExperimentalContracts::class)
+internal inline fun <BufferType> BufferType.discard(
+  discardArray: () -> Unit
+): BufferType where BufferType : Buffer {
+  contract { callsInPlace(discardArray, InvocationKind.AT_MOST_ONCE) }
+  rewind().limit(0)
+  discardArray()
+  return this
+}
+
+/**
+ * Rewinds this buffer, zeroes its limit, and discards its backing array (if
+ * any).
+ *
+ * @param ByteArray.discard
+ */
+private fun ByteBuffer.discard() = discard { if (hasArray()) array().discard() }
+
+/**
+ * Rewinds this buffer, zeroes its limit, and discards its backing array (if
+ * any).
+ *
+ * @param CharArray.discard
+ */
+private fun CharBuffer.discard() = discard { if (hasArray()) array().discard() }
