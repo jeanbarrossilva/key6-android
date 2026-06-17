@@ -75,5 +75,19 @@ internal fun PlainPassword.Companion.newRandomBackingArray(): CharArray {
   return backingArray
 }
 
+/**
+ * Returns a password based on this string.
+ *
+ * This is **unsafe** because strings are immutable, and may be or have been
+ * interned, which might allow other processes to read them; this poses as a
+ * security threat for passwords. As this function is only for testing purposes,
+ * calling it will probably not be an issue.
+ */
+internal fun String.asUnsafePlainPassword(): PlainPassword {
+  if (isEmpty()) return PlainPassword.empty
+  val backingBuffer = CharBuffer.wrap(this)
+  return PlainPassword(backingBuffer)
+}
+
 /** Obtains the RNG responsible for generating random passwords in tests. */
 private fun rng(): Random = ThreadLocalRandom.current()

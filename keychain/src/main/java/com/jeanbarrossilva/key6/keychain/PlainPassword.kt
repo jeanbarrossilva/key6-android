@@ -285,7 +285,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     else {
       val encodedPasswordBuffer = charset.encode(backingBuffer)
       backingBuffer.rewind()
-      var encodedPassword = encodedPasswordBuffer.array()
+      var encodedPassword: ByteArray = encodedPasswordBuffer.array()
       val encodedPasswordLength = encodedPasswordBuffer.limit()
 
       // 'encodedPassword', as-is, is padded by 16 bytes; this implies in its
@@ -348,11 +348,11 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
   }
 
   companion object {
+    /** Password without contents. */
+    @JvmStatic internal val empty = newEmpty()
+
     /** Charset for encoding and decoding passwords: UTF-16. */
     @JvmStatic internal val charset = Charsets.UTF_16
-
-    /** Password without contents. */
-    @JvmStatic private val empty = newEmpty()
 
     /** Numbers 0–9 as characters. */
     @JvmStatic

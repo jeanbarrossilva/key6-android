@@ -32,6 +32,7 @@ import assertk.assertions.isNull
 import assertk.assertions.isTrue
 import assertk.assertions.prop
 import assertk.coroutines.assertions.suspendCall
+import com.jeanbarrossilva.key6.keychain.test.asUnsafePlainPassword
 import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
 import java.net.URI
 import java.nio.CharBuffer
@@ -68,8 +69,7 @@ internal class KeychainTests {
     fun throwsIfInstantiatingWithBlankMainPassword(mainPassword: String) {
       assertFailure {
         FakeKeychain.withMainPassword(
-          PlainPassword(CharBuffer.wrap(mainPassword))
-        )
+          PlainPassword(CharBuffer.wrap(mainPassword)))
       }
     }
 
@@ -109,8 +109,8 @@ internal class KeychainTests {
     @Test
     fun throwsIfStoringKeyNoLoginAndNoPassword(
       unlockAttemptRate: UnlockAttemptRate,
-      login: String,
-      password: String
+      keyLogin: String,
+      keyPassword: String
     ) {
       val keychain = FakeKeychain.withRandomMainPassword()
       keychain.setUnlockAttemptRate(unlockAttemptRate)
@@ -118,8 +118,8 @@ internal class KeychainTests {
         assertFailure {
             keychain.unlockAndStore(
               title = "Lorem ipsum",
-              login,
-              PlainPassword(CharBuffer.wrap(password)),
+              keyLogin,
+              keyPassword.asUnsafePlainPassword(),
               path = null)
           }
           .isInstanceOf<Keychain.StorageException.Insufficient>()
@@ -157,7 +157,7 @@ internal class KeychainTests {
     @Test
     fun storesKeyWithLoginAndNoPassword(
       unlockAttemptRate: UnlockAttemptRate,
-      password: String
+      keyPassword: String
     ) {
       val keychain = FakeKeychain.withRandomMainPassword()
       keychain.setUnlockAttemptRate(unlockAttemptRate)
@@ -166,7 +166,7 @@ internal class KeychainTests {
           keychain.unlockAndStore(
             title = "Lorem ipsum",
             login = "john@appleseed.com",
-            PlainPassword(CharBuffer.wrap(password)),
+            keyPassword.asUnsafePlainPassword(),
             path = null)
         assertThat(keychain)
           .transform("get($keyID)") { it[keyID] }
