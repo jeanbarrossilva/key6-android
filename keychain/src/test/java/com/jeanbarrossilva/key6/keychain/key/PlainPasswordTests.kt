@@ -219,7 +219,7 @@ internal class PlainPasswordTests {
     }
 
     @Test
-    fun throwsIfStartTimeIsBeforeUnixEpoch() {
+    fun throwsIfCurrentTimeIsBeforeUnixEpoch() {
       val currentTime = (-2).seconds
       assertFailure { PlainPassword.generateTOTP(newRandomKey(), currentTime) }
         .isInstanceOf<PlainPassword.TOTPException.PreUnixEpochTime>()
@@ -228,18 +228,26 @@ internal class PlainPasswordTests {
     }
 
     @Test
-    fun throwsIfLengthIsLesserThan6() =
-      assertFailure { PlainPassword.generateTOTP(newRandomKey(), length = 5) }
+    fun throwsIfLengthIsLesserThan6() {
+      val length = 5
+      assertFailure {
+          PlainPassword.generateTOTP(newRandomKey(), length = length)
+        }
         .isInstanceOf<PlainPassword.TOTPException.LowEntropy>()
         .prop(PlainPassword.TOTPException.LowEntropy::length)
-        .isEqualTo(5)
+        .isEqualTo(length)
+    }
 
     @Test
-    fun throwsIfLengthIsGreaterThan8() =
-      assertFailure { PlainPassword.generateTOTP(newRandomKey(), length = 9) }
+    fun throwsIfLengthIsGreaterThan8() {
+      val length = 9
+      assertFailure {
+          PlainPassword.generateTOTP(newRandomKey(), length = length)
+        }
         .isInstanceOf<PlainPassword.TOTPException.LowEntropy>()
         .prop(PlainPassword.TOTPException.LowEntropy::length)
-        .isEqualTo(9)
+        .isEqualTo(length)
+    }
 
     @Test
     fun generates6DigitLongTOTPByDefault() =

@@ -21,12 +21,12 @@
 
 package com.jeanbarrossilva.key6.keychain.key
 
+import de.xformerfhs.securesecretkeyspec.crypto.SecureSecretKeySpec
 import java.nio.Buffer
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.util.Random
 import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 import kotlin.contracts.ExperimentalContracts
 import kotlin.contracts.InvocationKind
 import kotlin.contracts.contract
@@ -703,9 +703,10 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       // epoch and the current time comprises, floored.
 
       val hmac: Mac = Mac.getInstance(hashFunction.algorithmName)
-      val keySpec = SecretKeySpec(key, "RAW")
+      val keySpec = SecureSecretKeySpec(key, "RAW")
       hmac.init(keySpec)
       val hash: ByteArray = hmac.doFinal(counterAsByteArray)
+      keySpec.destroy()
       val truncationStartOffset =
         hash.last().toInt() and
           // 00000F (hexadecimal) = 00001111 (binary) = 15 (decimal). The offset
