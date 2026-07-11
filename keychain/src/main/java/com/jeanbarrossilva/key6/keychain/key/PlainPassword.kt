@@ -310,15 +310,15 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       TOTPException("Current time cannot be before the Unix epoch.")
 
     /**
-     * Thrown if the key passed into the [generateTOTP] function has less than
-     * 128 bits (16 bytes); such a key is deemed too short in the RFC and is
+     * Thrown if the seed passed into the [generateTOTP] function has less than
+     * 128 bits (16 bytes); such a seed is deemed too short in the RFC and is
      * prohibited as input to the algorithm.
      *
-     * @property size Actual size of the given key.
+     * @property size Actual size of the given seed.
      */
-    class ShortKey internal constructor(val size: Int) :
+    class ShortSeed internal constructor(val size: Int) :
       TOTPException(
-        "TOTP key must contain at least 16 bytes (128 bits); given one had " +
+        "TOTP seed must contain at least 16 bytes (128 bits); given one had " +
           "$size.")
   }
 
@@ -632,12 +632,12 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
      * 2) the site prompts them to increase the security of their account by
      *    enabling MFA;
      * 3) the user agrees to do so; and
-     * 3) the site displays either a key in plaintext, commonly encoded in
+     * 3) the site displays either a seed in plaintext, commonly encoded in
      *    Base32 with trailing padding omitted, or a QR code representing that
-     *    key.
+     *    seed.
      *
-     * Such key is public, and will be that shared with Key6 by being passed
-     * into the [key] parameter. This function will, then, generate a TOTP with
+     * Such seed is public, and will be that shared with Key6 by being passed
+     * into the [seed] parameter. This function will, then, generate a TOTP with
      * the specified length, valid for the amount of time in the [step] since
      * the current time; past this duration plus the validation window of the
      * site, the TOTP expires, and, once MFA is enabled, a new one must be
@@ -654,8 +654,8 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
      * - Wolford, B. (2026). *What is HOTP? A guide to HMAC-based one-time
      *   passwords*. Proton. https://proton.me/blog/hotp.
      *
-     * @param key Bytes known by Key6 and the site at which the user may
-     *   authenticate, produced by such site. As per the RFC, this key should
+     * @param seed Bytes known by Key6 and the site at which the user may
+     *   authenticate, produced by such site. As per the RFC, this seed should
      *   have been generated randomly and must contain at least 16 bytes (128
      *   bits). Failure to satisfy this minimum will result in an exception
      *   being thrown.
@@ -674,14 +674,14 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     @JvmStatic
     @Throws(TOTPException::class)
     internal fun generateTOTP(
-      key: ByteArray,
+      seed: ByteArray,
       currentTime: Duration = System.currentTimeMillis().milliseconds,
       step: Duration = 30.seconds,
       hashFunction: TOTPHashFunction = TOTPHashFunction.SHA1,
       length: Int = HOTP_LENGTH_RECOMMENDATION.first
     ): PlainPassword {
-      if (key.size < TOTP_MIN_KEY_SIZE_IN_BYTES) {
-        throw TOTPException.ShortKey(key.size)
+      if (seed.size < TOTP_MIN_KEY_SIZE_IN_BYTES) {
+        throw TOTPException.ShortSeed(seed.size)
       }
       if (currentTime.isNegative()) {
         throw TOTPException.PreUnixEpochTime(currentTime)
@@ -693,7 +693,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       val counterAsByteArray = ByteArray(Byte.SIZE_BITS)
       for (index in 0..<counterAsByteArray.size) {
         counterAsByteArray[index] =
-          (counterAsLong ushr (Long.SIZE_BITS - Byte.SIZE_BITS * index))
+          (counterAsLong ushr (Byte.SIZE_BITS * ((Byte.SIZE_BITS - 1) - index)))
             .toByte()
       }
 
@@ -703,10 +703,10 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       // epoch and the current time comprises, floored.
 
       val hmac: Mac = Mac.getInstance(hashFunction.algorithmName)
-      val keySpec = SecureSecretKeySpec(key, "RAW")
-      hmac.init(keySpec)
+      val seedSpec = SecureSecretKeySpec(seed, "RAW")
+      hmac.init(seedSpec)
       val hash: ByteArray = hmac.doFinal(counterAsByteArray)
-      keySpec.destroy()
+      seedSpec.destroy()
       val truncationStartOffset =
         hash.last().toInt() and
           // 00000F (hexadecimal) = 00001111 (binary) = 15 (decimal). The offset
@@ -723,7 +723,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
         TOTP_TRUNCATION_MODULI[
           length - HOTP_LENGTH_RECOMMENDATION.last +
             TOTP_TRUNCATION_MODULI.lastIndex]
-      val backingBuffer =
+      val backingBuffer: CharBuffer =
         ByteBuffer.allocateDirect(
             length * CHARSET_DECODED_CHARACTER_SIZE_IN_BYTES)
           .asCharBuffer()
