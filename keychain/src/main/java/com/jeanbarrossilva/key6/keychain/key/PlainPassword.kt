@@ -249,7 +249,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    *
    * @see generateTOTP
    */
-  enum class TotpHashFunction {
+  enum class TOTPHashFunction {
     /** Produces a 20-byte (an 160-bit) HMAC using SHA1. */
     SHA1 {
       override val algorithmName = "HmacSHA1"
@@ -663,7 +663,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       key: ByteArray,
       currentTime: Duration = System.currentTimeMillis().milliseconds,
       step: Duration = 30.seconds,
-      hashFunction: TotpHashFunction = TotpHashFunction.SHA1,
+      hashFunction: TOTPHashFunction = TOTPHashFunction.SHA1,
       length: Int = 6
     ): PlainPassword {
       if (key.size < TOTP_MIN_KEY_SIZE_IN_BYTES) {

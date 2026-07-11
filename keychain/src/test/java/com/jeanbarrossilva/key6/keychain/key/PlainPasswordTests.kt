@@ -256,7 +256,7 @@ internal class PlainPasswordTests {
     @Parameters("SHA1", "SHA256", "SHA512")
     @Test
     fun generatesUsingHashFunction(
-      hashFunction: PlainPassword.TotpHashFunction
+      hashFunction: PlainPassword.TOTPHashFunction
     ) =
       assertThat(
           PlainPassword.generateTOTP(
