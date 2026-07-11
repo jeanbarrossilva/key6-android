@@ -480,6 +480,17 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
         '~')
 
     /**
+     * Lengths recommended by the HOTP RFC for a generated HOTP (see
+     * [§ 5.3](https://www.rfc-editor.org/info/rfc4226/#section-5.3)).
+     * Attempting to generate a TOTP with a length outside of this range in Key6
+     * will throw an exception.
+     *
+     * @see generateTOTP
+     * @see TOTPException.LowEntropy
+     */
+    @JvmStatic private val HOTP_LENGTH_RECOMMENDATION = 6..8
+
+    /**
      * Pre-computed powers of ten for truncating the amount of digits in some
      * TOTP being generated, from 10⁵ up to 10⁸. The remainder of the division
      * between such TOTP and the desired length *n* equals to the TOTP with its
@@ -655,7 +666,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
      * @param length Amount of digits in the TOTP, where each digit is in [[0,
      *   9]]. Due to the low entropy that would result from lengths past either
      *   ends of the range, this method treats the RFC's recommendation on the
-     *   length as a requirement: 6 ≤ [length] ≤ 8.
+     *   length as a requirement: 6 ≤ [length] ≤ 8, defaulting to 6.
      */
     @JvmStatic
     @Throws(TOTPException::class)
@@ -664,7 +675,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       currentTime: Duration = System.currentTimeMillis().milliseconds,
       step: Duration = 30.seconds,
       hashFunction: TOTPHashFunction = TOTPHashFunction.SHA1,
-      length: Int = 6
+      length: Int = HOTP_LENGTH_RECOMMENDATION.first
     ): PlainPassword {
       if (key.size < TOTP_MIN_KEY_SIZE_IN_BYTES) {
         throw TOTPException.ShortKey(key.size)
@@ -672,7 +683,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       if (currentTime.isNegative()) {
         throw TOTPException.PreUnixEpochTime(currentTime)
       }
-      if (length !in 6..8) {
+      if (length !in HOTP_LENGTH_RECOMMENDATION) {
         throw TOTPException.LowEntropy(length)
       }
       val counterAsLong = currentTime.inWholeSeconds / step.inWholeSeconds
@@ -705,7 +716,9 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
           (totpAsInt shl Byte.SIZE_BITS) or (hash[offset].toInt() and 0xff)
       }
       totpAsInt %=
-        TOTP_TRUNCATION_MODULI[length - TOTP_TRUNCATION_MODULI.size - 1]
+        TOTP_TRUNCATION_MODULI[
+          length - HOTP_LENGTH_RECOMMENDATION.last +
+            TOTP_TRUNCATION_MODULI.lastIndex]
       val backingBuffer =
         ByteBuffer.allocateDirect(
             length * CHARSET_DECODED_CHARACTER_SIZE_IN_BYTES)

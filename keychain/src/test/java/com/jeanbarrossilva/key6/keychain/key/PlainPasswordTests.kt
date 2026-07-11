@@ -211,7 +211,7 @@ internal class PlainPasswordTests {
   class TOTPGenerationTests {
     @Test
     fun throwsIfKeyContainsLessThan128Bits() {
-      val keySize = PlainPassword.TOTP_MIN_KEY_SIZE_IN_BYTES / 2
+      val keySize = PlainPassword.TOTP_MIN_KEY_SIZE_IN_BYTES - 1
       assertFailure { PlainPassword.generateTOTP(newRandomKey(keySize)) }
         .isInstanceOf<PlainPassword.TOTPException.ShortKey>()
         .prop(PlainPassword.TOTPException.ShortKey::size)
@@ -246,7 +246,7 @@ internal class PlainPasswordTests {
       assertThat(PlainPassword.generateTOTP(newRandomKey())).hasLength(6)
 
     @Test
-    fun generatesEqualTOTPsIfIntervalsAreEqual() {
+    fun generatesEqualTOTPsIfTheirKeyAndCurrentTimeAreEqual() {
       val key = newRandomKey()
       val currentTime = 64.seconds
       assertThat(PlainPassword.generateTOTP(key, currentTime))
@@ -262,6 +262,12 @@ internal class PlainPasswordTests {
           PlainPassword.generateTOTP(
             newRandomKey(), hashFunction = hashFunction))
         .hasLength(6)
+
+    @Parameters("6", "7", "8")
+    @Test
+    fun generatesWithLength(length: Int) =
+      assertThat(PlainPassword.generateTOTP(newRandomKey(), length = length))
+        .hasLength(length)
 
     private companion object {
       @JvmStatic
