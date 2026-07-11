@@ -22,7 +22,8 @@ package com.jeanbarrossilva.key6.keychain
 import assertk.assertThat
 import assertk.assertions.isFalse
 import assertk.assertions.isTrue
-import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword
+import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
 import io.mockk.clearMocks
 import io.mockk.every
 import io.mockk.mockk

@@ -17,21 +17,23 @@
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
-package com.jeanbarrossilva.key6.keychain
+package com.jeanbarrossilva.key6.keychain.key
 
 import assertk.all
+import assertk.assertFailure
 import assertk.assertThat
 import assertk.assertions.containsExactly
 import assertk.assertions.hasLength
 import assertk.assertions.isEmpty
 import assertk.assertions.isEqualTo
+import assertk.assertions.isInstanceOf
 import assertk.assertions.isNotEqualTo
 import assertk.assertions.isNotSameInstanceAs
 import assertk.assertions.isSameInstanceAs
 import assertk.assertions.prop
-import com.jeanbarrossilva.key6.keychain.test.newRandomBackingArray
-import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
-import com.jeanbarrossilva.key6.keychain.test.newRandomWithNonDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.test.newRandomBackingArray
+import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithNonDirectBuffer
 import com.kevinmost.junit_retry_rule.Retry
 import com.kevinmost.junit_retry_rule.RetryRule
 import java.nio.CharBuffer
@@ -39,6 +41,7 @@ import java.util.Random
 import java.util.concurrent.ThreadLocalRandom
 import junitparams.JUnitParamsRunner
 import junitparams.Parameters
+import kotlin.time.Duration.Companion.seconds
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -51,7 +54,8 @@ import org.junit.runners.Suite
   PlainPasswordTests.CodingTests::class,
   PlainPasswordTests.ComparisonTests::class,
   PlainPasswordTests.DiscardingTests::class,
-  PlainPasswordTests.GenerationTests::class)
+  PlainPasswordTests.GenerationTests::class,
+  PlainPasswordTests.TOTPGenerationTests::class)
 internal class PlainPasswordTests {
   class CharArrayConversion {
     @Test
@@ -197,9 +201,77 @@ internal class PlainPasswordTests {
               rng, letters, allowsDigits, allowsSymbols, length))
       }
     }
+
+    private companion object {
+      @JvmStatic val rng: Random = ThreadLocalRandom.current()
+    }
   }
 
-  private companion object {
-    @JvmStatic val rng: Random = ThreadLocalRandom.current()
+  @RunWith(JUnitParamsRunner::class)
+  class TOTPGenerationTests {
+    @Test
+    fun throwsIfKeyContainsLessThan128Bits() {
+      val keySize = PlainPassword.TOTP_MIN_KEY_SIZE_IN_BYTES / 2
+      assertFailure { PlainPassword.generateTOTP(newRandomKey(keySize)) }
+        .isInstanceOf<PlainPassword.TOTPException.ShortKey>()
+        .prop(PlainPassword.TOTPException.ShortKey::size)
+        .isEqualTo(keySize)
+    }
+
+    @Test
+    fun throwsIfStartTimeIsBeforeUnixEpoch() {
+      val currentTime = (-2).seconds
+      assertFailure { PlainPassword.generateTOTP(newRandomKey(), currentTime) }
+        .isInstanceOf<PlainPassword.TOTPException.PreUnixEpochTime>()
+        .prop(PlainPassword.TOTPException.PreUnixEpochTime::currentTime)
+        .isEqualTo(currentTime)
+    }
+
+    @Test
+    fun throwsIfLengthIsLesserThan6() =
+      assertFailure { PlainPassword.generateTOTP(newRandomKey(), length = 5) }
+        .isInstanceOf<PlainPassword.TOTPException.LowEntropy>()
+        .prop(PlainPassword.TOTPException.LowEntropy::length)
+        .isEqualTo(5)
+
+    @Test
+    fun throwsIfLengthIsGreaterThan8() =
+      assertFailure { PlainPassword.generateTOTP(newRandomKey(), length = 9) }
+        .isInstanceOf<PlainPassword.TOTPException.LowEntropy>()
+        .prop(PlainPassword.TOTPException.LowEntropy::length)
+        .isEqualTo(9)
+
+    @Test
+    fun generates6DigitLongTOTPByDefault() =
+      assertThat(PlainPassword.generateTOTP(newRandomKey())).hasLength(6)
+
+    @Test
+    fun generatesEqualTOTPsIfIntervalsAreEqual() {
+      val key = newRandomKey()
+      val currentTime = 64.seconds
+      assertThat(PlainPassword.generateTOTP(key, currentTime))
+        .isEqualTo(PlainPassword.generateTOTP(key, currentTime))
+    }
+
+    @Parameters("SHA1", "SHA256", "SHA512")
+    @Test
+    fun generatesUsingHashFunction(
+      hashFunction: PlainPassword.TotpHashFunction
+    ) =
+      assertThat(
+          PlainPassword.generateTOTP(
+            newRandomKey(), hashFunction = hashFunction))
+        .hasLength(6)
+
+    private companion object {
+      @JvmStatic
+      fun newRandomKey(
+        size: Int = PlainPassword.TOTP_MIN_KEY_SIZE_IN_BYTES
+      ): ByteArray {
+        val key = ByteArray(size)
+        ThreadLocalRandom.current().nextBytes(key)
+        return key
+      }
+    }
   }
 }

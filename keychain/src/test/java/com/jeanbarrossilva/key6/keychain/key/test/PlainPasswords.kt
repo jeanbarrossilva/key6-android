@@ -19,10 +19,10 @@
 
 @file:JvmName("PlainPasswords")
 
-package com.jeanbarrossilva.key6.keychain.test
+package com.jeanbarrossilva.key6.keychain.key.test
 
-import com.jeanbarrossilva.key6.keychain.PlainPassword
-import com.jeanbarrossilva.key6.keychain.discard
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword
+import com.jeanbarrossilva.key6.keychain.key.discard
 import java.nio.ByteBuffer
 import java.nio.CharBuffer
 import java.util.Random

@@ -20,6 +20,7 @@
 package com.jeanbarrossilva.key6.keychain
 
 import br.com.orcinus.orca.ext.reflection.java.access
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword
 import java.security.SecureRandom
 import kotlin.math.min
 import org.springframework.security.crypto.argon2.Argon2PasswordEncoder

@@ -17,7 +17,7 @@
  * along with this program. If not, see https://www.gnu.org/licenses.
  */
 
-package com.jeanbarrossilva.key6.keychain
+package com.jeanbarrossilva.key6.keychain.key
 
 import assertk.all
 import assertk.assertFailure
@@ -39,7 +39,7 @@ import org.junit.runner.RunWith
 internal class KeyTests {
   @Test
   fun instantiatesZeroed16ByteSalt() {
-    val salt = Keychain.Key.newZeroedSalt()
+    val salt = Key.newZeroedSalt()
     assertThat(salt).all {
       hasSize(16)
       containsOnly(0)
@@ -48,7 +48,7 @@ internal class KeyTests {
 
   @Test
   fun instantiatesZeroed12ByteIV() {
-    val iv = Keychain.Key.newZeroedIV()
+    val iv = Key.newZeroedIV()
     assertThat(iv).all {
       hasSize(12)
       containsOnly(0)
@@ -67,7 +67,7 @@ internal class KeyTests {
   @Test
   fun throwsIfInstantiatingKeyWithNonV7Uuid(id: String, version: Int) {
     assertFailure {
-        Keychain.Key.new(
+        Key.new(
           id,
           title = "Lorem ipsum",
           login = "john@appleseed.com",
@@ -76,8 +76,8 @@ internal class KeyTests {
           encryptedPassword = ByteArray(size = 8),
           path = null)
       }
-      .isInstanceOf<Keychain.KeyException.NonUuidV7ID>()
-      .prop(Keychain.KeyException.NonUuidV7ID::version)
+      .isInstanceOf<KeyException.NonUuidV7ID>()
+      .prop(KeyException.NonUuidV7ID::version)
       .isEqualTo(version.takeIf { it >= 0 })
   }
 
@@ -85,7 +85,7 @@ internal class KeyTests {
   @Test
   fun throwsIfInstantiatingKeyWithNon16ByteSalt(size: Int) {
     assertFailure {
-        Keychain.Key.new(
+        Key.new(
           Uuid.generateV7().toString(),
           title = "Lorem ipsum",
           login = "john@appleseed.com",
@@ -94,8 +94,8 @@ internal class KeyTests {
           encryptedPassword = ByteArray(size = 8),
           path = null)
       }
-      .isInstanceOf<Keychain.KeyException.Non16ByteSalt>()
-      .prop(Keychain.KeyException.Non16ByteSalt::size)
+      .isInstanceOf<KeyException.Non16ByteSalt>()
+      .prop(KeyException.Non16ByteSalt::size)
       .isEqualTo(size)
   }
 
@@ -103,7 +103,7 @@ internal class KeyTests {
   @Test
   fun throwsIfInstantiatingKeyWithNon12ByteIV(size: Int) {
     assertFailure {
-        Keychain.Key.new(
+        Key.new(
           Uuid.generateV7().toString(),
           title = "Lorem ipsum",
           login = "john@appleseed.com",
@@ -112,8 +112,8 @@ internal class KeyTests {
           encryptedPassword = ByteArray(size = 8),
           path = null)
       }
-      .isInstanceOf<Keychain.KeyException.Non12ByteIV>()
-      .prop(Keychain.KeyException.Non12ByteIV::size)
+      .isInstanceOf<KeyException.Non12ByteIV>()
+      .prop(KeyException.Non12ByteIV::size)
       .isEqualTo(size)
   }
 }

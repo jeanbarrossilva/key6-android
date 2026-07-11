@@ -32,8 +32,10 @@ import assertk.assertions.isNull
 import assertk.assertions.isTrue
 import assertk.assertions.prop
 import assertk.coroutines.assertions.suspendCall
-import com.jeanbarrossilva.key6.keychain.test.asUnsafePlainPassword
-import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.Key
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword
+import com.jeanbarrossilva.key6.keychain.key.test.asUnsafePlainPassword
+import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
 import java.net.URI
 import java.nio.CharBuffer
 import junitparams.JUnitParamsRunner
@@ -144,11 +146,11 @@ internal class KeychainTests {
           .transform("get($keyID)") { it[keyID] }
           .isNotNull()
           .all {
-            prop(Keychain.Key::id).isEqualTo(keyID)
-            prop(Keychain.Key::title).isEqualTo(keyTitle)
-            prop(Keychain.Key::login).isEqualTo(keyLogin)
-            prop(Keychain.Key::encryptedPassword).isNotIn(keyEncodedPassword)
-            prop(Keychain.Key::path).isEqualTo(keyPath)
+            prop(Key::id).isEqualTo(keyID)
+            prop(Key::title).isEqualTo(keyTitle)
+            prop(Key::login).isEqualTo(keyLogin)
+            prop(Key::encryptedPassword).isNotIn(keyEncodedPassword)
+            prop(Key::path).isEqualTo(keyPath)
           }
       }
     }
@@ -171,7 +173,7 @@ internal class KeychainTests {
         assertThat(keychain)
           .transform("get($keyID)") { it[keyID] }
           .isNotNull()
-          .prop(Keychain.Key::id)
+          .prop(Key::id)
           .isEqualTo(keyID)
       }
     }
@@ -190,7 +192,7 @@ internal class KeychainTests {
         assertThat(keychain)
           .transform("get($keyID)") { it[keyID] }
           .isNotNull()
-          .prop(Keychain.Key::encryptedPassword)
+          .prop(Key::encryptedPassword)
           .isNotEqualTo(keyPassword)
       }
     }
@@ -265,7 +267,7 @@ internal class KeychainTests {
         assertThat(keychain)
           .transform("get($keyID)") { it[keyID] }
           .isNotNull()
-          .prop(Keychain.Key::id)
+          .prop(Key::id)
           .isEqualTo(keyID)
       }
     }
