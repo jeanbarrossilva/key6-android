@@ -299,7 +299,7 @@ internal class PlainPasswordTests {
               SHA1_SEED,
               currentTime = 59.seconds,
               hashFunction = TOTPHashFunction.SHA1,
-              length = 8))
+              length = LENGTH))
           .hasToString("94287082")
 
       @Test
@@ -309,7 +309,7 @@ internal class PlainPasswordTests {
               SHA256_SEED,
               currentTime = 59.seconds,
               hashFunction = TOTPHashFunction.SHA256,
-              length = 8))
+              length = LENGTH))
           .hasToString("46119246")
 
       @Test
@@ -319,7 +319,7 @@ internal class PlainPasswordTests {
               SHA512_SEED,
               currentTime = 59.seconds,
               hashFunction = TOTPHashFunction.SHA512,
-              length = 8))
+              length = LENGTH))
           .hasToString("90693936")
 
       @Test
@@ -329,7 +329,7 @@ internal class PlainPasswordTests {
               SHA1_SEED,
               currentTime = 1111111109.seconds,
               hashFunction = TOTPHashFunction.SHA1,
-              length = 8))
+              length = LENGTH))
           .hasToString("07081804")
 
       @Test
@@ -339,7 +339,7 @@ internal class PlainPasswordTests {
               SHA256_SEED,
               currentTime = 1111111109.seconds,
               hashFunction = TOTPHashFunction.SHA256,
-              length = 8))
+              length = LENGTH))
           .hasToString("68084774")
 
       @Test
@@ -349,7 +349,7 @@ internal class PlainPasswordTests {
               SHA512_SEED,
               currentTime = 1111111109.seconds,
               hashFunction = TOTPHashFunction.SHA512,
-              length = 8))
+              length = LENGTH))
           .hasToString("25091201")
 
       @Test
@@ -359,7 +359,7 @@ internal class PlainPasswordTests {
               SHA1_SEED,
               currentTime = 1111111111.seconds,
               hashFunction = TOTPHashFunction.SHA1,
-              length = 8))
+              length = LENGTH))
           .hasToString("14050471")
 
       @Test
@@ -369,7 +369,7 @@ internal class PlainPasswordTests {
               SHA256_SEED,
               currentTime = 1111111111.seconds,
               hashFunction = TOTPHashFunction.SHA256,
-              length = 8))
+              length = LENGTH))
           .hasToString("67062674")
 
       @Test
@@ -379,7 +379,7 @@ internal class PlainPasswordTests {
               SHA512_SEED,
               currentTime = 1111111111.seconds,
               hashFunction = TOTPHashFunction.SHA512,
-              length = 8))
+              length = LENGTH))
           .hasToString("99943326")
 
       @Test
@@ -389,7 +389,7 @@ internal class PlainPasswordTests {
               SHA1_SEED,
               currentTime = 1234567890.seconds,
               hashFunction = TOTPHashFunction.SHA1,
-              length = 8))
+              length = LENGTH))
           .hasToString("89005924")
 
       @Test
@@ -399,7 +399,7 @@ internal class PlainPasswordTests {
               SHA256_SEED,
               currentTime = 1234567890.seconds,
               hashFunction = TOTPHashFunction.SHA256,
-              length = 8))
+              length = LENGTH))
           .hasToString("91819424")
 
       @Test
@@ -409,7 +409,7 @@ internal class PlainPasswordTests {
               SHA512_SEED,
               currentTime = 1234567890.seconds,
               hashFunction = TOTPHashFunction.SHA512,
-              length = 8))
+              length = LENGTH))
           .hasToString("93441116")
 
       @Test
@@ -419,7 +419,7 @@ internal class PlainPasswordTests {
               SHA1_SEED,
               currentTime = 2000000000.seconds,
               hashFunction = TOTPHashFunction.SHA1,
-              length = 8))
+              length = LENGTH))
           .hasToString("69279037")
 
       @Test
@@ -429,7 +429,7 @@ internal class PlainPasswordTests {
               SHA256_SEED,
               currentTime = 2000000000.seconds,
               hashFunction = TOTPHashFunction.SHA256,
-              length = 8))
+              length = LENGTH))
           .hasToString("90698825")
 
       @Test
@@ -439,7 +439,7 @@ internal class PlainPasswordTests {
               SHA512_SEED,
               currentTime = 2000000000.seconds,
               hashFunction = TOTPHashFunction.SHA512,
-              length = 8))
+              length = LENGTH))
           .hasToString("38618901")
 
       @Test
@@ -449,7 +449,7 @@ internal class PlainPasswordTests {
               SHA1_SEED,
               currentTime = 20000000000.seconds,
               hashFunction = TOTPHashFunction.SHA1,
-              length = 8))
+              length = LENGTH))
           .hasToString("65353130")
 
       @Test
@@ -459,7 +459,7 @@ internal class PlainPasswordTests {
               SHA256_SEED,
               currentTime = 20000000000.seconds,
               hashFunction = TOTPHashFunction.SHA256,
-              length = 8))
+              length = LENGTH))
           .hasToString("77737706")
 
       @Test
@@ -469,10 +469,12 @@ internal class PlainPasswordTests {
               SHA512_SEED,
               currentTime = 20000000000.seconds,
               hashFunction = TOTPHashFunction.SHA512,
-              length = 8))
+              length = LENGTH))
           .hasToString("47863826")
 
       private companion object {
+        const val LENGTH = 8
+
         val SHA1_SEED = "12345678901234567890".toByteArray()
         val SHA256_SEED = "12345678901234567890123456789012".toByteArray()
         val SHA512_SEED =

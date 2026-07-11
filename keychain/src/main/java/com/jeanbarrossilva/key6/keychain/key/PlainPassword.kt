@@ -296,6 +296,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
      *
      * @property length The amount of digits with which the TOTP was attempted
      *   to be generated, lesser than 6 or greater than 8.
+     * @see HOTP_LENGTH_RECOMMENDATION
      */
     class LowEntropy internal constructor(val length: Int) :
       TOTPException("TOTP length should be in the [6, 8] range (was $length).")
@@ -419,6 +420,17 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
 
   companion object {
     /**
+     * Lengths recommended by the HOTP RFC for a generated HOTP (see
+     * [§ 5.3](https://www.rfc-editor.org/info/rfc4226/#section-5.3)).
+     * Attempting to generate a TOTP with a length outside of this range in Key6
+     * will throw an exception.
+     *
+     * @see generateTOTP
+     * @see TOTPException.LowEntropy
+     */
+    @JvmStatic val HOTP_LENGTH_RECOMMENDATION = 6..8
+
+    /**
      * Minimum amount of bytes that a key passed as input into [generateTOTP] is
      * required to contain, as per the TOTP RFC.
      */
@@ -480,28 +492,18 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
         '~')
 
     /**
-     * Lengths recommended by the HOTP RFC for a generated HOTP (see
-     * [§ 5.3](https://www.rfc-editor.org/info/rfc4226/#section-5.3)).
-     * Attempting to generate a TOTP with a length outside of this range in Key6
-     * will throw an exception.
-     *
-     * @see generateTOTP
-     * @see TOTPException.LowEntropy
-     */
-    @JvmStatic private val HOTP_LENGTH_RECOMMENDATION = 6..8
-
-    /**
-     * Pre-computed powers of ten for truncating the amount of digits in some
-     * TOTP being generated, from 10⁶ up to 10⁸. The remainder of the division
-     * between such TOTP and the desired length *n* equals to the TOTP with its
+     * Pre-computed powers of 10 for truncating the amount of digits in some
+     * HOTP being generated, from 10⁶ up to 10⁸. The remainder of the division
+     * between such HOTP and the desired length *n* equals to the HOTP with its
      * last *n* digits, where 6 ≤ *n* ≤ 8, with the integer of this array at
      * *n* - `HOTP_LENGTH_RECOMMENDATION.last` +
-     * `TOTP_TRUNCATION_MODULI.lastIndex` being the modulus.
+     * `HOTP_TRUNCATION_MODULI.lastIndex` being the modulus.
      *
+     * @see generateTOTP
      * @see HOTP_LENGTH_RECOMMENDATION
      */
     @JvmStatic
-    private val TOTP_TRUNCATION_MODULI =
+    private val HOTP_TRUNCATION_MODULI =
       intArrayOf(1_000_000, 10_000_000, 100_000_000)
 
     /** Instantiates a password without contents. */
@@ -693,7 +695,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       val counterAsByteArray = ByteArray(Byte.SIZE_BITS)
       for (index in 0..<counterAsByteArray.size) {
         counterAsByteArray[index] =
-          (counterAsLong ushr (Byte.SIZE_BITS * ((Byte.SIZE_BITS - 1) - index)))
+          (counterAsLong ushr (Byte.SIZE_BITS * (Byte.SIZE_BITS - 1 - index)))
             .toByte()
       }
 
@@ -720,9 +722,9 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
           (totpAsInt shl Byte.SIZE_BITS) or (hash[offset].toInt() and 0xff)
       }
       totpAsInt %=
-        TOTP_TRUNCATION_MODULI[
+        HOTP_TRUNCATION_MODULI[
           length - HOTP_LENGTH_RECOMMENDATION.last +
-            TOTP_TRUNCATION_MODULI.lastIndex]
+            HOTP_TRUNCATION_MODULI.lastIndex]
       val backingBuffer: CharBuffer =
         ByteBuffer.allocateDirect(
             length * CHARSET_DECODED_CHARACTER_SIZE_IN_BYTES)
