@@ -492,10 +492,13 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
 
     /**
      * Pre-computed powers of ten for truncating the amount of digits in some
-     * TOTP being generated, from 10⁵ up to 10⁸. The remainder of the division
+     * TOTP being generated, from 10⁶ up to 10⁸. The remainder of the division
      * between such TOTP and the desired length *n* equals to the TOTP with its
      * last *n* digits, where 6 ≤ *n* ≤ 8, with the integer of this array at
-     * *n* - `size` - 1 being the modulus.
+     * *n* - `HOTP_LENGTH_RECOMMENDATION.last` +
+     * `TOTP_TRUNCATION_MODULI.lastIndex` being the modulus.
+     *
+     * @see HOTP_LENGTH_RECOMMENDATION
      */
     @JvmStatic
     private val TOTP_TRUNCATION_MODULI =
