@@ -32,6 +32,10 @@ import assertk.assertions.isNotEqualTo
 import assertk.assertions.isNotSameInstanceAs
 import assertk.assertions.isSameInstanceAs
 import assertk.assertions.prop
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.TOTP_MIN_KEY_SIZE_IN_BYTES
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.generateTOTP
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.TOTPException
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.TOTPHashFunction
 import com.jeanbarrossilva.key6.keychain.key.test.newRandomBackingArray
 import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
 import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithNonDirectBuffer
@@ -216,79 +220,67 @@ internal class PlainPasswordTests {
     class GenerationTests {
       @Test
       fun throwsIfKeyContainsLessThan128Bits() {
-        val keySize = PlainPassword.TOTP_MIN_KEY_SIZE_IN_BYTES - 1
-        assertFailure { PlainPassword.generateTOTP(newRandomKey(keySize)) }
-          .isInstanceOf<PlainPassword.TOTPException.ShortSeed>()
-          .prop(PlainPassword.TOTPException.ShortSeed::size)
+        val keySize = TOTP_MIN_KEY_SIZE_IN_BYTES - 1
+        assertFailure { generateTOTP(newRandomKey(keySize)) }
+          .isInstanceOf<TOTPException.ShortSeed>()
+          .prop(TOTPException.ShortSeed::size)
           .isEqualTo(keySize)
       }
 
       @Test
       fun throwsIfCurrentTimeIsBeforeUnixEpoch() {
         val currentTime = (-2).seconds
-        assertFailure {
-            PlainPassword.generateTOTP(newRandomKey(), currentTime)
-          }
-          .isInstanceOf<PlainPassword.TOTPException.PreUnixEpochTime>()
-          .prop(PlainPassword.TOTPException.PreUnixEpochTime::currentTime)
+        assertFailure { generateTOTP(newRandomKey(), currentTime) }
+          .isInstanceOf<TOTPException.PreUnixEpochTime>()
+          .prop(TOTPException.PreUnixEpochTime::currentTime)
           .isEqualTo(currentTime)
       }
 
       @Test
       fun throwsIfLengthIsLesserThan6() {
         val length = 5
-        assertFailure {
-            PlainPassword.generateTOTP(newRandomKey(), length = length)
-          }
-          .isInstanceOf<PlainPassword.TOTPException.LowEntropy>()
-          .prop(PlainPassword.TOTPException.LowEntropy::length)
+        assertFailure { generateTOTP(newRandomKey(), length = length) }
+          .isInstanceOf<TOTPException.LowEntropy>()
+          .prop(TOTPException.LowEntropy::length)
           .isEqualTo(length)
       }
 
       @Test
       fun throwsIfLengthIsGreaterThan8() {
         val length = 9
-        assertFailure {
-            PlainPassword.generateTOTP(newRandomKey(), length = length)
-          }
-          .isInstanceOf<PlainPassword.TOTPException.LowEntropy>()
-          .prop(PlainPassword.TOTPException.LowEntropy::length)
+        assertFailure { generateTOTP(newRandomKey(), length = length) }
+          .isInstanceOf<TOTPException.LowEntropy>()
+          .prop(TOTPException.LowEntropy::length)
           .isEqualTo(length)
       }
 
       @Test
       fun generates6DigitLongTOTPByDefault() =
-        assertThat(PlainPassword.generateTOTP(newRandomKey())).hasLength(6)
+        assertThat(generateTOTP(newRandomKey())).hasLength(6)
 
       @Test
       fun generatesEqualTOTPsIfTheirKeyAndCurrentTimeAreEqual() {
         val key = newRandomKey()
         val currentTime = 64.seconds
-        assertThat(PlainPassword.generateTOTP(key, currentTime))
-          .isEqualTo(PlainPassword.generateTOTP(key, currentTime))
+        assertThat(generateTOTP(key, currentTime))
+          .isEqualTo(generateTOTP(key, currentTime))
       }
 
       @Parameters("SHA1", "SHA256", "SHA512")
       @Test
-      fun generatesUsingHashFunction(
-        hashFunction: PlainPassword.TOTPHashFunction
-      ) =
-        assertThat(
-            PlainPassword.generateTOTP(
-              newRandomKey(), hashFunction = hashFunction))
+      fun generatesUsingHashFunction(hashFunction: TOTPHashFunction) =
+        assertThat(generateTOTP(newRandomKey(), hashFunction = hashFunction))
           .hasLength(6)
 
       @Parameters("6", "7", "8")
       @Test
       fun generatesWithLength(length: Int) =
-        assertThat(PlainPassword.generateTOTP(newRandomKey(), length = length))
+        assertThat(generateTOTP(newRandomKey(), length = length))
           .hasLength(length)
 
       private companion object {
         @JvmStatic
-        fun newRandomKey(
-          size: Int = PlainPassword.TOTP_MIN_KEY_SIZE_IN_BYTES
-        ): ByteArray {
+        fun newRandomKey(size: Int = TOTP_MIN_KEY_SIZE_IN_BYTES): ByteArray {
           val key = ByteArray(size)
           ThreadLocalRandom.current().nextBytes(key)
           return key
@@ -303,180 +295,180 @@ internal class PlainPasswordTests {
       @Test
       fun case1() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA1_SEED,
               currentTime = 59.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA1,
+              hashFunction = TOTPHashFunction.SHA1,
               length = 8))
           .hasToString("94287082")
 
       @Test
       fun case2() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA256_SEED,
               currentTime = 59.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA256,
+              hashFunction = TOTPHashFunction.SHA256,
               length = 8))
           .hasToString("46119246")
 
       @Test
       fun case3() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA512_SEED,
               currentTime = 59.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA512,
+              hashFunction = TOTPHashFunction.SHA512,
               length = 8))
           .hasToString("90693936")
 
       @Test
       fun case4() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA1_SEED,
               currentTime = 1111111109.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA1,
+              hashFunction = TOTPHashFunction.SHA1,
               length = 8))
           .hasToString("07081804")
 
       @Test
       fun case5() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA256_SEED,
               currentTime = 1111111109.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA256,
+              hashFunction = TOTPHashFunction.SHA256,
               length = 8))
           .hasToString("68084774")
 
       @Test
       fun case6() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA512_SEED,
               currentTime = 1111111109.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA512,
+              hashFunction = TOTPHashFunction.SHA512,
               length = 8))
           .hasToString("25091201")
 
       @Test
       fun case7() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA1_SEED,
               currentTime = 1111111111.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA1,
+              hashFunction = TOTPHashFunction.SHA1,
               length = 8))
           .hasToString("14050471")
 
       @Test
       fun case8() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA256_SEED,
               currentTime = 1111111111.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA256,
+              hashFunction = TOTPHashFunction.SHA256,
               length = 8))
           .hasToString("67062674")
 
       @Test
       fun case9() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA512_SEED,
               currentTime = 1111111111.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA512,
+              hashFunction = TOTPHashFunction.SHA512,
               length = 8))
           .hasToString("99943326")
 
       @Test
       fun case10() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA1_SEED,
               currentTime = 1234567890.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA1,
+              hashFunction = TOTPHashFunction.SHA1,
               length = 8))
           .hasToString("89005924")
 
       @Test
       fun case11() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA256_SEED,
               currentTime = 1234567890.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA256,
+              hashFunction = TOTPHashFunction.SHA256,
               length = 8))
           .hasToString("91819424")
 
       @Test
       fun case12() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA512_SEED,
               currentTime = 1234567890.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA512,
+              hashFunction = TOTPHashFunction.SHA512,
               length = 8))
           .hasToString("93441116")
 
       @Test
       fun case13() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA1_SEED,
               currentTime = 2000000000.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA1,
+              hashFunction = TOTPHashFunction.SHA1,
               length = 8))
           .hasToString("69279037")
 
       @Test
       fun case14() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA256_SEED,
               currentTime = 2000000000.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA256,
+              hashFunction = TOTPHashFunction.SHA256,
               length = 8))
           .hasToString("90698825")
 
       @Test
       fun case15() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA512_SEED,
               currentTime = 2000000000.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA512,
+              hashFunction = TOTPHashFunction.SHA512,
               length = 8))
           .hasToString("38618901")
 
       @Test
       fun case16() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA1_SEED,
               currentTime = 20000000000.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA1,
+              hashFunction = TOTPHashFunction.SHA1,
               length = 8))
           .hasToString("65353130")
 
       @Test
       fun case17() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA256_SEED,
               currentTime = 20000000000.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA256,
+              hashFunction = TOTPHashFunction.SHA256,
               length = 8))
           .hasToString("77737706")
 
       @Test
       fun case18() =
         assertThat(
-            PlainPassword.generateTOTP(
+            generateTOTP(
               SHA512_SEED,
               currentTime = 20000000000.seconds,
-              hashFunction = PlainPassword.TOTPHashFunction.SHA512,
+              hashFunction = TOTPHashFunction.SHA512,
               length = 8))
           .hasToString("47863826")
 
