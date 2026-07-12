@@ -19,7 +19,9 @@
 
 package com.jeanbarrossilva.key6.keychain
 
-import com.jeanbarrossilva.key6.keychain.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.Key
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword
+import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
 
 /**
  * In-memory keychain for testing purposes. Provides main passwords based on the

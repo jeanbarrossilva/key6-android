@@ -13,6 +13,7 @@ dependencies {
     because("Spring Security Crypto's Argon2 encoder logs.")
   }
   implementation(libs.bouncyCastle.providers)
+  implementation(libs.kotlin.coroutines.core)
   implementation(libs.spring.security.crypto)
   testImplementation(libs.assertk)
   testImplementation(libs.assertk.coroutines)

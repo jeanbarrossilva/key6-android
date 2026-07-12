@@ -32,7 +32,7 @@ internal class FakeKeychainTests {
 
   @Retry(times = 4)
   @Test
-  fun isProducedWithRandomMainPassword() {
+  fun isInstantiatedWithRandomMainPassword() {
     repeat(32) {
       val firstKeychain = FakeKeychain.withRandomMainPassword()
       val secondKeychain = FakeKeychain.withRandomMainPassword()

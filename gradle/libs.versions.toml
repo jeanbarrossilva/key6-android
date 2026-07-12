@@ -33,7 +33,8 @@ bouncyCastle-providers = { group = 'org.bouncycastle', name = 'bcprov-jdk15on', 
 jUnit = { group = 'junit', name = 'junit', version = '4.13.2' }
 jUnitParams = { group = 'pl.pragmatists', name = 'JUnitParams', version = '1.1.1' }
 jspecify = { group = 'org.jspecify', name = 'jspecify', version = '1.0.0' }
-kotlin-coroutines-test = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coroutines-test', version = '1.11.0' }
+kotlin-coroutines-core = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coroutines-core', version.ref = 'kotlin-coroutines' }
+kotlin-coroutines-test = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coroutines-test', version.ref = 'kotlin-coroutines' }
 material = { group = 'com.google.android.material', name = 'material', version = '1.13.0' }
 mockK = { group = 'io.mockk', name = 'mockk-jvm', version = '1.14.11' }
 robolectric = { group = 'org.robolectric', name = 'robolectric', version = '4.16.1' }
@@ -54,3 +55,4 @@ android-sdk-min = '29'
 android-sdk-target = '36'
 android-test = '1.7.0'
 assertk = '0.28.1'
+kotlin-coroutines = '1.11.0'
