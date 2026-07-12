@@ -32,7 +32,7 @@ import java.util.concurrent.ThreadLocalRandom
 private const val LENGTH = 128
 
 /** Alphabet indexed by the [rng] for generating random passwords in tests. */
-private val generationAlphabet =
+private val GENERATION_ALPHABET =
   PlainPassword.newGenerationAlphabet(
     PlainPassword.Letters.WITHOUT_DIACRITICS,
     allowsDigits = true,
@@ -49,7 +49,7 @@ internal fun PlainPassword.Companion.newRandomWithNonDirectBuffer() =
 /** Instantiates a randomly-populated, non-direct buffer of a plain password. */
 internal fun PlainPassword.Companion.newNonDirectRandomBackingBuffer():
   CharBuffer {
-  val encodedPasswordBuffer = charset.encode(newDirectRandomBackingBuffer())
+  val encodedPasswordBuffer = CHARSET.encode(newDirectRandomBackingBuffer())
   val backingBuffer: ByteBuffer =
     ByteBuffer.allocateDirect(encodedPasswordBuffer.limit())
   while (encodedPasswordBuffer.hasRemaining()) {
@@ -64,14 +64,14 @@ internal fun PlainPassword.Companion.newNonDirectRandomBackingBuffer():
 
 /** Instantiates a randomly-populated, direct buffer of a plain password. */
 internal fun PlainPassword.Companion.newDirectRandomBackingBuffer() =
-  newPopulatedGenerationBackingBuffer(rng(), generationAlphabet, LENGTH)
+  newPopulatedGenerationBackingBuffer(rng(), GENERATION_ALPHABET, LENGTH)
 
 /** Instantiates a randomly-populated backing array of a plain password. */
 internal fun PlainPassword.Companion.newRandomBackingArray(): CharArray {
   val rng = rng()
   val backingArray = CharArray(LENGTH)
   for (index in 0..<backingArray.size) backingArray[index] =
-    generationAlphabet[rng.nextInt(generationAlphabet.size)]
+    GENERATION_ALPHABET[rng.nextInt(GENERATION_ALPHABET.size)]
   return backingArray
 }
 
@@ -84,7 +84,7 @@ internal fun PlainPassword.Companion.newRandomBackingArray(): CharArray {
  * calling it will probably not be an issue.
  */
 internal fun String.asUnsafePlainPassword(): PlainPassword {
-  if (isEmpty()) return PlainPassword.empty
+  if (isEmpty()) return PlainPassword.EMPTY
   val backingBuffer = CharBuffer.wrap(this)
   return PlainPassword(backingBuffer)
 }

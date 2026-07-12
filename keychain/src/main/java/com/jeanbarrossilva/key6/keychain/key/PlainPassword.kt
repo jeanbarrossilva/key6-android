@@ -60,7 +60,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
   enum class Letters {
     /** No letters will be included. */
     NONE {
-      override val subset = charArrayOf()
+      override val subset = EMPTY_CHAR_ARRAY
     },
 
     /** Only letters without combining diacritics may be included. */
@@ -336,7 +336,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    * affect those of the returned clone, and vice versa.
    */
   fun clone(): PlainPassword {
-    if (isEmpty()) return empty
+    if (isEmpty()) return EMPTY
     val bufferDuplicate = backingBuffer.deepDuplicate()
     return PlainPassword(bufferDuplicate)
   }
@@ -365,7 +365,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     // that unnecessary work here.
     if (isEmpty()) byteArrayOf()
     else {
-      val encodedPasswordBuffer = charset.encode(backingBuffer)
+      val encodedPasswordBuffer = CHARSET.encode(backingBuffer)
       backingBuffer.rewind()
       var encodedPassword: ByteArray = encodedPasswordBuffer.array()
       val encodedPasswordLength = encodedPasswordBuffer.limit()
@@ -396,7 +396,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    */
   internal fun asCharArray() =
     if (hasArray) backingBuffer.array()
-    else if (isEmpty()) Letters.NONE.subset else newCharArray()
+    else if (isEmpty()) EMPTY_CHAR_ARRAY else newCharArray()
 
   /**
    * Discards the contents **only** of the given array, and **only** in case
@@ -437,26 +437,29 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     internal const val TOTP_MIN_KEY_SIZE_IN_BYTES = 16
 
     /** Password without contents. */
-    @JvmStatic internal val empty = newEmpty()
+    @JvmStatic internal val EMPTY = newEmpty()
 
     /** Charset for encoding and decoding passwords: UTF-16. */
-    @JvmStatic internal val charset = Charsets.UTF_16
+    @JvmStatic internal val CHARSET = Charsets.UTF_16
 
     /**
-     * Amount of bytes for representing a character in the password [charset].
+     * Amount of bytes for representing a character in the password [CHARSET].
      */
     private const val CHARSET_DECODED_CHARACTER_SIZE_IN_BYTES = 2
 
     /** Numbers 0–9 as characters. */
     @JvmStatic
-    private val digits =
+    private val DIGITS =
       charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
+
+    /** An array containing zero characters. */
+    @JvmStatic private val EMPTY_CHAR_ARRAY = charArrayOf()
 
     /**
      * Punctuation and other characters deemed special and printable in ASCII.
      */
     @JvmStatic
-    private val symbols =
+    private val SYMBOLS =
       charArrayOf(
         '!',
         '"',
@@ -521,8 +524,8 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
      */
     @JvmStatic
     internal fun decode(encodedPassword: ByteArray) =
-      if (encodedPassword.isEmpty()) empty
-      else PlainPassword(charset.decode(ByteBuffer.wrap(encodedPassword)))
+      if (encodedPassword.isEmpty()) EMPTY
+      else PlainPassword(CHARSET.decode(ByteBuffer.wrap(encodedPassword)))
 
     /**
      * Generates a password in plaintext for some keychain.
@@ -546,9 +549,9 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       allowsSymbols: Boolean,
       length: Int
     ): PlainPassword {
-      if (length <= 0) return empty
+      if (length <= 0) return EMPTY
       val alphabet = newGenerationAlphabet(letters, allowsDigits, allowsSymbols)
-      if (alphabet.isEmpty()) return empty
+      if (alphabet.isEmpty()) return EMPTY
       return PlainPassword(
         newPopulatedGenerationBackingBuffer(rng, alphabet, length))
     }
@@ -575,16 +578,16 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       // resulting union will be empty.
       val size =
         letters.subset.size +
-          (if (allowsDigits) digits.size else 0) +
-          (if (allowsSymbols) symbols.size else 0)
-      if (size == 0) return Letters.NONE.subset
+          (if (allowsDigits) DIGITS.size else 0) +
+          (if (allowsSymbols) SYMBOLS.size else 0)
+      if (size == 0) return EMPTY_CHAR_ARRAY
       val alphabet = CharArray(size)
       System.arraycopy(letters.subset, 0, alphabet, 0, letters.subset.size)
       if (allowsDigits)
-        System.arraycopy(digits, 0, alphabet, letters.subset.size, digits.size)
+        System.arraycopy(DIGITS, 0, alphabet, letters.subset.size, DIGITS.size)
       if (allowsSymbols)
         System.arraycopy(
-          symbols, 0, alphabet, alphabet.size - symbols.size, symbols.size)
+          SYMBOLS, 0, alphabet, alphabet.size - SYMBOLS.size, SYMBOLS.size)
       return alphabet
     }
 

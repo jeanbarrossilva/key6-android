@@ -157,7 +157,7 @@ internal class PlainPasswordTests {
     fun returnsEmptyStringIfGeneratingWithLengthZeroOrNegative(length: Int) {
       val generatedPassword =
         PlainPassword.generate(
-          rng,
+          RNG,
           PlainPassword.Letters.WITH_DIACRITICS,
           allowsDigits = true,
           allowsSymbols = true,
@@ -169,7 +169,7 @@ internal class PlainPasswordTests {
     fun returnsEmptyStringIfGeneratingWithoutCharacterSubset() {
       val generatedPassword =
         PlainPassword.generate(
-          rng,
+          RNG,
           PlainPassword.Letters.NONE,
           allowsDigits = false,
           allowsSymbols = false,
@@ -182,7 +182,7 @@ internal class PlainPasswordTests {
     fun generates(length: Int) {
       val generatedPassword =
         PlainPassword.generate(
-          rng,
+          RNG,
           PlainPassword.Letters.WITH_DIACRITICS,
           allowsDigits = true,
           allowsSymbols = true,
@@ -200,15 +200,15 @@ internal class PlainPasswordTests {
       repeat(32) {
         assertThat(
             PlainPassword.generate(
-              rng, letters, allowsDigits, allowsSymbols, length))
+              RNG, letters, allowsDigits, allowsSymbols, length))
           .isNotEqualTo(
             PlainPassword.generate(
-              rng, letters, allowsDigits, allowsSymbols, length))
+              RNG, letters, allowsDigits, allowsSymbols, length))
       }
     }
 
     private companion object {
-      @JvmStatic val rng: Random = ThreadLocalRandom.current()
+      @JvmStatic val RNG: Random = ThreadLocalRandom.current()
     }
   }
 

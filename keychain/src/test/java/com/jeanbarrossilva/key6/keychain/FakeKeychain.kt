@@ -48,7 +48,7 @@ private constructor(internal val mainPassword: PlainPassword) :
    * Determines the amount of times an incorrect main password will be provided
    * by this keychain upon attempts to unlock it.
    */
-  private var unlockAttemptRate = UnlockAttemptRate.default
+  private var unlockAttemptRate = UnlockAttemptRate.DEFAULT
 
   /**
    * Amount of times attempts to unlock this keychain were made in the current
@@ -127,16 +127,16 @@ private constructor(internal val mainPassword: PlainPassword) :
  * an unsecure keychain before giving the correct password out upon an attempt
  * to unlock the keychain.
  *
- * Rates other than *lowest* (the [default] rate) are more common when testing
+ * Rates other than *lowest* (the [DEFAULT] rate) are more common when testing
  * keychains, where the behavior of throwing in cases of failures to unlock is
  * verified.
  *
- * @see Lowest
+ * @see LOWEST
  * @see Keychain.IncorrectMainPasswordException
  */
 internal enum class UnlockAttemptRate {
   /** The correct main password will be provided on the first try. */
-  Lowest {
+  LOWEST {
     override fun targetCount(max: Int) = 0
   },
 
@@ -145,7 +145,7 @@ internal enum class UnlockAttemptRate {
    * ⌈[Keychain.maxUnlockAttemptCount] ÷ 2⌉ attempts to unlock with incorrect
    * passwords.
    */
-  Mid {
+  MID {
     override fun targetCount(max: Int) = max / 2
   },
 
@@ -153,7 +153,7 @@ internal enum class UnlockAttemptRate {
    * The correct main password will never be provided; all passwords given when
    * requested will be incorrect.
    */
-  Exceeding {
+  EXCEEDING {
     override fun targetCount(max: Int) = max + 1
   };
 
@@ -166,9 +166,9 @@ internal enum class UnlockAttemptRate {
    */
   internal fun generateMainPassword(keychain: FakeKeychain) =
     when (this) {
-      Lowest -> keychain.mainPassword
-      Mid,
-      Exceeding ->
+      LOWEST -> keychain.mainPassword
+      MID,
+      EXCEEDING ->
         keychain.generatePlainPassword(
           PlainPassword.Letters.WITH_DIACRITICS,
           allowsDigits = true,
@@ -192,6 +192,7 @@ internal enum class UnlockAttemptRate {
      * rate, in which the correct main password in plaintext is provided on the
      * first attempt to unlock the keychain.
      */
-    internal val default = Lowest
+    @JvmStatic
+    internal val DEFAULT = LOWEST
   }
 }

@@ -65,7 +65,8 @@ internal class Argon2iHasherTests {
       .transform("matches(${password.toList()})") { it.isMatch(password) }
       .isTrue()
   }
-}
 
-private fun newHasher(csprng: SecureRandom = SecureRandom()) =
-  Argon2iHasher(csprng)
+  private companion object {
+    fun newHasher(csprng: SecureRandom = SecureRandom()) = Argon2iHasher(csprng)
+  }
+}

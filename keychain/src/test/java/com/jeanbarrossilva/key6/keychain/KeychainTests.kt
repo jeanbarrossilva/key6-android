@@ -237,7 +237,7 @@ internal class KeychainTests {
     @Test
     fun isLockedByDefault() {
       val keychain = FakeKeychain.withRandomMainPassword()
-      keychain.setUnlockAttemptRate(UnlockAttemptRate.Lowest)
+      keychain.setUnlockAttemptRate(UnlockAttemptRate.LOWEST)
       assertThat(keychain).all {
         prop(FakeKeychain::isLocked).isTrue()
         prop(FakeKeychain::inactivityThreshold).isEqualTo(Duration.ZERO)
@@ -247,7 +247,7 @@ internal class KeychainTests {
     @Test
     fun throwsIfInactivityThresholdIsNegative() {
       val keychain = FakeKeychain.withRandomMainPassword()
-      keychain.setUnlockAttemptRate(UnlockAttemptRate.Lowest)
+      keychain.setUnlockAttemptRate(UnlockAttemptRate.LOWEST)
       assertFailure { keychain.inactivityThreshold = (-2).milliseconds }
         .isInstanceOf<IllegalArgumentException>()
     }
@@ -263,7 +263,7 @@ internal class KeychainTests {
             login = "john@appleseed.com",
             PlainPassword.newRandomWithDirectBuffer(),
             path = null)
-        keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
+        keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         assertThat(keychain)
           .transform("get($keyID)") { it[keyID] }
           .isNotNull()
@@ -282,7 +282,7 @@ internal class KeychainTests {
             login = "john@appleseed.com",
             PlainPassword.newRandomWithDirectBuffer(),
             path = null)
-        keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
+        keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         assertFailure { keychain.unlockAndGetPassword(keyID) }
           .isInstanceOf<Keychain.IncorrectMainPasswordException>()
       }
@@ -298,7 +298,7 @@ internal class KeychainTests {
             login = "john@appleseed.com",
             PlainPassword.newRandomWithDirectBuffer(),
             path = null)
-        keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
+        keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         assertFailure { keychain.unlockAndRemove(keyID) }
           .isInstanceOf<Keychain.IncorrectMainPasswordException>()
       }
@@ -315,7 +315,7 @@ internal class KeychainTests {
             login = "john@appleseed.com",
             PlainPassword.newRandomWithDirectBuffer(),
             path = null)
-        keychain.setUnlockAttemptRate(UnlockAttemptRate.Exceeding)
+        keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         keychain.unlockAndRemove(keyID)
       }
     }
