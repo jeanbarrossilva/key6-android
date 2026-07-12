@@ -295,11 +295,7 @@ internal class PlainPasswordTests {
       @Test
       fun case1() =
         assertThat(
-            generateTOTP(
-              SHA1_SEED,
-              currentTime = 59.seconds,
-              hashFunction = TOTPHashFunction.SHA1,
-              length = LENGTH))
+            generateTOTP(SHA1_SEED, currentTime = 59.seconds, length = LENGTH))
           .hasToString("94287082")
 
       @Test
@@ -326,10 +322,7 @@ internal class PlainPasswordTests {
       fun case4() =
         assertThat(
             generateTOTP(
-              SHA1_SEED,
-              currentTime = 1111111109.seconds,
-              hashFunction = TOTPHashFunction.SHA1,
-              length = LENGTH))
+              SHA1_SEED, currentTime = 1111111109.seconds, length = LENGTH))
           .hasToString("07081804")
 
       @Test
@@ -356,10 +349,7 @@ internal class PlainPasswordTests {
       fun case7() =
         assertThat(
             generateTOTP(
-              SHA1_SEED,
-              currentTime = 1111111111.seconds,
-              hashFunction = TOTPHashFunction.SHA1,
-              length = LENGTH))
+              SHA1_SEED, currentTime = 1111111111.seconds, length = LENGTH))
           .hasToString("14050471")
 
       @Test
@@ -386,10 +376,7 @@ internal class PlainPasswordTests {
       fun case10() =
         assertThat(
             generateTOTP(
-              SHA1_SEED,
-              currentTime = 1234567890.seconds,
-              hashFunction = TOTPHashFunction.SHA1,
-              length = LENGTH))
+              SHA1_SEED, currentTime = 1234567890.seconds, length = LENGTH))
           .hasToString("89005924")
 
       @Test
@@ -416,10 +403,7 @@ internal class PlainPasswordTests {
       fun case13() =
         assertThat(
             generateTOTP(
-              SHA1_SEED,
-              currentTime = 2000000000.seconds,
-              hashFunction = TOTPHashFunction.SHA1,
-              length = LENGTH))
+              SHA1_SEED, currentTime = 2000000000.seconds, length = LENGTH))
           .hasToString("69279037")
 
       @Test
@@ -446,10 +430,7 @@ internal class PlainPasswordTests {
       fun case16() =
         assertThat(
             generateTOTP(
-              SHA1_SEED,
-              currentTime = 20000000000.seconds,
-              hashFunction = TOTPHashFunction.SHA1,
-              length = LENGTH))
+              SHA1_SEED, currentTime = 20000000000.seconds, length = LENGTH))
           .hasToString("65353130")
 
       @Test
