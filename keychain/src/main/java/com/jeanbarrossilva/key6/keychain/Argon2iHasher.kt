@@ -41,13 +41,16 @@ import org.springframework.security.crypto.keygen.BytesKeyGenerator
 //    rather than to the encoder *method*. As we adapt the memory parameter to
 //    the free memory available *when* hashing is performed, this means that we
 //    need to reinstantiate the encoder class upon every hash (see
-//    'Argon2iHasher.hash(CharArray)' and 'Argon2iHasher.initEncoder()'); and
+//    'Argon2iHasher.hash(CharArray)' and 'Argon2iHasher.initEncoder()');
 // 3) its encoder method accepts not an array, but a sequence of characters.
 //    This isn't necessarily a problem, as a 'CharSequence' isn't necessarily a
 //    'String'—but it can be one, which would probably be a security loophole.
 //    We take care of it by requesting a 'PlainPassword' from the caller, which
 //    takes care of the potential interdependence between the password's buffer
-//    and the 'CharArray' backing that buffer.
+//    and the 'CharArray' backing that buffer; and
+// 4) its maximum version on which we can dependend is 7.0.6, because, as of
+//    July 17, 2026, versions after that throw an exception when calling
+//    'Argon2PasswordEncoder.isMatch(CharSequence, String)'.
 
 /**
  * Hasher of passwords in plaintext that uses the Argon2i function.

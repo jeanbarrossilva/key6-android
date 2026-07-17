@@ -38,7 +38,7 @@ kotlin-coroutines-test = { group = 'org.jetbrains.kotlinx', name = 'kotlinx-coro
 material = { group = 'com.google.android.material', name = 'material', version = '1.13.0' }
 mockK = { group = 'io.mockk', name = 'mockk-jvm', version = '1.14.11' }
 robolectric = { group = 'org.robolectric', name = 'robolectric', version = '4.16.1' }
-spring-security-crypto = { group = 'org.springframework.security', name = 'spring-security-crypto', version = '7.0.5' }
+spring-security-crypto = { group = 'org.springframework.security', name = 'spring-security-crypto', version = '7.0.6' }
 tomlJ = { group = 'org.tomlj', name = 'tomlj', version = '1.1.1' }
 
 [plugins]

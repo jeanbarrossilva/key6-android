@@ -23,6 +23,7 @@ import assertk.all
 import assertk.assertFailure
 import assertk.assertThat
 import assertk.assertions.containsExactly
+import assertk.assertions.each
 import assertk.assertions.hasLength
 import assertk.assertions.hasToString
 import assertk.assertions.isEmpty
@@ -32,16 +33,17 @@ import assertk.assertions.isNotEqualTo
 import assertk.assertions.isNotSameInstanceAs
 import assertk.assertions.isSameInstanceAs
 import assertk.assertions.prop
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.EMPTY
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.TOTP_MIN_KEY_SIZE_IN_BYTES
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.decodeAndMove
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.generateTOTP
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Companion.move
+import com.jeanbarrossilva.key6.keychain.key.PlainPassword.Letters
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword.TOTPException
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword.TOTPHashFunction
-import com.jeanbarrossilva.key6.keychain.key.test.newRandomBackingArray
-import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
-import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithNonDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.test.generate
 import com.kevinmost.junit_retry_rule.Retry
 import com.kevinmost.junit_retry_rule.RetryRule
-import java.nio.CharBuffer
 import java.util.Random
 import java.util.concurrent.ThreadLocalRandom
 import junitparams.JUnitParamsRunner
@@ -60,29 +62,30 @@ import org.junit.runners.Suite
   PlainPasswordTests.ComparisonTests::class,
   PlainPasswordTests.DiscardingTests::class,
   PlainPasswordTests.GenerationTests::class,
+  PlainPasswordTests.MoveTests::class,
   PlainPasswordTests.TOTPTests::class)
 internal class PlainPasswordTests {
+  class MoveTests {
+    @Test
+    fun movesCharactersFromArrayToPassword() {
+      val contents = charArrayOf('1', '2', '3')
+      val password = move(contents)
+      assertThat(password).hasToString("123")
+      assertThat(contents).each { it.isEqualTo('\u0000') }
+    }
+  }
+
   class CharArrayConversion {
     @Test
-    fun asCharArrayReturnsTheEmptyBackingArrayIfThePasswordIsEmpty() =
-      assertThat(PlainPassword.newEmpty())
-        .prop(PlainPassword::asCharArray)
-        .all {
-          isEmpty()
-          isSameInstanceAs(PlainPassword.newEmpty().asCharArray())
-        }
+    fun asCharArrayReturnsTheSameEmptyArrayIfThePasswordIsEmpty() =
+      assertThat(move(charArrayOf())).prop(PlainPassword::asCharArray).all {
+        isEmpty()
+        isSameInstanceAs(EMPTY.asCharArray())
+      }
 
     @Test
-    fun asCharArrayReturnsTheBackingArrayIfThePasswordHasOne() {
-      val backingArray = PlainPassword.newRandomBackingArray()
-      assertThat(PlainPassword(CharBuffer.wrap(backingArray)))
-        .prop(PlainPassword::asCharArray)
-        .isSameInstanceAs(backingArray)
-    }
-
-    @Test
-    fun asCharArrayReturnsNewlyInstantiatedArrayIfThePasswordIsNeitherEmptyNorHasOne() {
-      val password = PlainPassword.newRandomWithNonDirectBuffer()
+    fun asCharArrayReturnsNewlyInstantiatedArrayIfThePasswordIsNotEmpty() {
+      val password = PlainPassword.generate()
       assertThat(password)
         .prop(PlainPassword::asCharArray)
         .isNotSameInstanceAs(password.asCharArray())
@@ -92,8 +95,8 @@ internal class PlainPasswordTests {
   class ComparisonTests {
     @Test
     fun equalsOnlyComparesStructurally() {
-      val originalPassword = PlainPassword.newRandomWithDirectBuffer()
-      val clonedPassword = originalPassword.clone()
+      val originalPassword = PlainPassword.generate()
+      val clonedPassword = originalPassword.cloneUnsafe()
       assertThat(originalPassword).all {
         isEqualTo(clonedPassword)
         clonedPassword.discard()
@@ -104,12 +107,21 @@ internal class PlainPasswordTests {
 
   class CodingTests {
     @Test
+    fun contentsAreMovedWhenDecoding() {
+      val originalPassword = PlainPassword.generate()
+      val encodedPassword = originalPassword.encode()
+      val decodedPassword = decodeAndMove(encodedPassword)
+      assertThat(encodedPassword).each { it.isEqualTo(0) }
+      assertThat(decodedPassword).isEqualTo(originalPassword)
+    }
+
+    @Test
     fun codingIsSymmetric() {
-      val decodedPassword = PlainPassword.newRandomWithDirectBuffer()
+      val decodedPassword = PlainPassword.generate()
       val encodedPassword = decodedPassword.encode()
       assertThat(PlainPassword)
         .transform("decode(${encodedPassword.toList()})") {
-          it.decode(encodedPassword)
+          it.decodeAndMove(encodedPassword)
         }
         .isEqualTo(decodedPassword)
     }
@@ -117,9 +129,9 @@ internal class PlainPasswordTests {
 
   class CloningTests {
     @Test
-    fun originalPasswordIsBackedByBufferIndependentFromThatOfClonedPassword() {
-      val originalPassword = PlainPassword.newRandomWithDirectBuffer()
-      val clonedPassword = originalPassword.clone()
+    fun originalPasswordIsIndependentFromCloned() {
+      val originalPassword = PlainPassword.generate()
+      val clonedPassword = originalPassword.cloneUnsafe()
       val clonedContents = clonedPassword.newCharArray()
       clonedPassword.discard()
       assertThat(originalPassword)
@@ -128,10 +140,10 @@ internal class PlainPasswordTests {
     }
 
     @Test
-    fun clonedPasswordIsBackedByBufferIndependentFromThatOfOriginalPassword() {
-      val originalPassword = PlainPassword.newRandomWithDirectBuffer()
+    fun clonedPasswordIsIndependentFromOriginal() {
+      val originalPassword = PlainPassword.generate()
       val originalContents = originalPassword.newCharArray()
-      val clonedPassword = originalPassword.clone()
+      val clonedPassword = originalPassword.cloneUnsafe()
       originalPassword.discard()
       assertThat(clonedPassword)
         .prop(PlainPassword::asCharArray)
@@ -142,7 +154,7 @@ internal class PlainPasswordTests {
   class DiscardingTests {
     @Test
     fun discards() {
-      val password = PlainPassword.newRandomWithDirectBuffer()
+      val password = PlainPassword.generate()
       password.discard()
       assertThat(password).isEmpty()
     }
@@ -158,7 +170,7 @@ internal class PlainPasswordTests {
       val generatedPassword =
         PlainPassword.generate(
           RNG,
-          PlainPassword.Letters.WITH_DIACRITICS,
+          Letters.WITH_DIACRITICS,
           allowsDigits = true,
           allowsSymbols = true,
           length)
@@ -170,7 +182,7 @@ internal class PlainPasswordTests {
       val generatedPassword =
         PlainPassword.generate(
           RNG,
-          PlainPassword.Letters.NONE,
+          Letters.NONE,
           allowsDigits = false,
           allowsSymbols = false,
           length = 16)
@@ -183,7 +195,7 @@ internal class PlainPasswordTests {
       val generatedPassword =
         PlainPassword.generate(
           RNG,
-          PlainPassword.Letters.WITH_DIACRITICS,
+          Letters.WITH_DIACRITICS,
           allowsDigits = true,
           allowsSymbols = true,
           length)
@@ -193,7 +205,7 @@ internal class PlainPasswordTests {
     @Retry(times = 4)
     @Test
     fun generatesRandomly() {
-      val letters = PlainPassword.Letters.WITH_DIACRITICS
+      val letters = Letters.WITH_DIACRITICS
       val allowsDigits = true
       val allowsSymbols = true
       val length = 16

@@ -22,6 +22,7 @@ package com.jeanbarrossilva.key6.keychain
 import com.jeanbarrossilva.key6.keychain.key.Key
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword
 import com.jeanbarrossilva.key6.keychain.key.discard
+import de.xformerfhs.securesecretkeyspec.crypto.SecureSecretKeySpec
 import java.net.URI
 import java.security.NoSuchAlgorithmException
 import java.security.SecureRandom
@@ -513,12 +514,14 @@ abstract class Keychain {
   private suspend fun unlockAndDecryptPassword(key: Key): PlainPassword {
     val derivedPassphrase = unlockAndDerivePassphrase(key.salt)
     val cipher: Cipher = Cipher.getInstance(CIPHER_NAME)
-    val keySpec = SecretKeySpec(derivedPassphrase, "AES")
+    val keySpec = SecureSecretKeySpec(derivedPassphrase, "AES")
     val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, key.iv)
     cipher.init(Cipher.DECRYPT_MODE, keySpec, modeSpec)
     val encodedPasswordContents: ByteArray =
       cipher.doFinal(key.encryptedPassword)
-    return PlainPassword.decode(encodedPasswordContents)
+    derivedPassphrase.discard()
+    keySpec.destroy()
+    return PlainPassword.decodeAndMove(encodedPasswordContents)
   }
 
   /**
@@ -553,12 +556,13 @@ abstract class Keychain {
       PBEKeySpec(
         mainPasswordAsArray, salt, /* iterationCount= */ 1 shl 21, sizeInBits)
 
-    // 'mainPasswordAsArray' is discarded because JVM's GC may not be
-    // deterministic; this way, the actual contents of the array remain
-    // inaccessible by someone who's, somehow, able to read the array.
+    // The main password and the array obtained from it are discarded because
+    // JVM's GC may not be deterministic; this way, they will remain
+    // inaccessible by someone able to read the array.
     //
     // 'spec' is not affected by this, given that it makes a copy of it.
-    mainPassword.discard(mainPasswordAsArray)
+    mainPassword.discard()
+    mainPasswordAsArray.discard()
 
     val passphrase =
       SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")

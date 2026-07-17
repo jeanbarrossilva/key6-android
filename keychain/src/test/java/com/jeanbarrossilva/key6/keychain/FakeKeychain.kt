@@ -21,7 +21,7 @@ package com.jeanbarrossilva.key6.keychain
 
 import com.jeanbarrossilva.key6.keychain.key.Key
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword
-import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.test.generate
 
 /**
  * In-memory keychain for testing purposes. Provides main passwords based on the
@@ -81,7 +81,7 @@ private constructor(internal val mainPassword: PlainPassword) :
       // requestMainPassword() is called by the keychain when an unlock is
       // attempted; afterward, the password returned here is discarded
       // internally. Hence, the clone.
-      mainPassword.clone()
+      mainPassword.cloneUnsafe()
     }
 
   override suspend fun remove(keyID: String) {
@@ -102,8 +102,7 @@ private constructor(internal val mainPassword: PlainPassword) :
   companion object {
     /** Instantiates an unsecure keychain with a random main password. */
     @JvmStatic
-    fun withRandomMainPassword() =
-      withMainPassword(PlainPassword.newRandomWithDirectBuffer())
+    fun withRandomMainPassword() = withMainPassword(PlainPassword.generate())
 
     /**
      * Instantiates this type of keychain with its main password specified in
@@ -192,7 +191,6 @@ internal enum class UnlockAttemptRate {
      * rate, in which the correct main password in plaintext is provided on the
      * first attempt to unlock the keychain.
      */
-    @JvmStatic
-    internal val DEFAULT = LOWEST
+    @JvmStatic internal val DEFAULT = LOWEST
   }
 }

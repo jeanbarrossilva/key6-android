@@ -35,9 +35,8 @@ import assertk.coroutines.assertions.suspendCall
 import com.jeanbarrossilva.key6.keychain.key.Key
 import com.jeanbarrossilva.key6.keychain.key.PlainPassword
 import com.jeanbarrossilva.key6.keychain.key.test.asUnsafePlainPassword
-import com.jeanbarrossilva.key6.keychain.key.test.newRandomWithDirectBuffer
+import com.jeanbarrossilva.key6.keychain.key.test.generate
 import java.net.URI
-import java.nio.CharBuffer
 import junitparams.JUnitParamsRunner
 import junitparams.Parameters
 import kotlin.time.Duration
@@ -70,22 +69,22 @@ internal class KeychainTests {
     @Test
     fun throwsIfInstantiatingWithBlankMainPassword(mainPassword: String) {
       assertFailure {
-        FakeKeychain.withMainPassword(
-          PlainPassword(CharBuffer.wrap(mainPassword)))
+        FakeKeychain.withMainPassword(mainPassword.asUnsafePlainPassword())
       }
     }
 
     @Test
     fun throwsIfInstantiatingWithMainPasswordWithLessThanEightCharacters() {
       assertFailure {
-        FakeKeychain.withMainPassword(PlainPassword(CharBuffer.wrap("1234567")))
+        FakeKeychain.withMainPassword(
+          PlainPassword.move(charArrayOf('1', '2', '3', '4', '5', '6', '7')))
       }
     }
 
     @Test
     fun throwsIfInstantiatingWithMainPasswordWithMostlyWhitespaces() {
       assertFailure {
-        FakeKeychain.withMainPassword(PlainPassword(CharBuffer.wrap("1   2")))
+        FakeKeychain.withMainPassword("1   2".asUnsafePlainPassword())
       }
     }
   }
@@ -100,14 +99,14 @@ internal class KeychainTests {
             keychain.unlockAndStore(
               title = "",
               login = "john@appleseed.com",
-              PlainPassword.newRandomWithDirectBuffer(),
+              PlainPassword.generate(),
               path = null)
           }
           .isInstanceOf<Keychain.StorageException.Untitled>()
       }
     }
 
-    @Parameters("Lowest,, ", "Lowest, ,", "Mid,, ", "Mid, ,")
+    @Parameters("LOWEST,, ", "LOWEST, ,", "MID,, ", "MID, ,")
     @Test
     fun throwsIfStoringKeyNoLoginAndNoPassword(
       unlockAttemptRate: UnlockAttemptRate,
@@ -128,14 +127,14 @@ internal class KeychainTests {
       }
     }
 
-    @Parameters("Lowest", "Mid")
+    @Parameters("LOWEST", "MID")
     @Test
     fun storesKey(unlockAttemptRate: UnlockAttemptRate) {
       val keychain = FakeKeychain.withRandomMainPassword()
       keychain.setUnlockAttemptRate(unlockAttemptRate)
       val keyTitle = "Lorem ipsum"
       val keyLogin = "john@appleseed.com"
-      val keyDecodedPassword = PlainPassword.newRandomWithDirectBuffer()
+      val keyDecodedPassword = PlainPassword.generate()
       val keyEncodedPassword = keyDecodedPassword.encode()
       val keyPath = URI.create("https://website.com/")
       runTest {
@@ -155,7 +154,7 @@ internal class KeychainTests {
       }
     }
 
-    @Parameters("Lowest,", "Lowest, ", "Mid,", "Mid, ")
+    @Parameters("LOWEST,", "LOWEST, ", "MID,", "MID, ")
     @Test
     fun storesKeyWithLoginAndNoPassword(
       unlockAttemptRate: UnlockAttemptRate,
@@ -181,7 +180,7 @@ internal class KeychainTests {
     @Test
     fun storedKeyPasswordIsEncrypted() {
       val keychain = FakeKeychain.withRandomMainPassword()
-      val keyPassword = PlainPassword.newRandomWithDirectBuffer()
+      val keyPassword = PlainPassword.generate()
       runTest {
         val keyID =
           keychain.unlockAndStore(
@@ -208,7 +207,7 @@ internal class KeychainTests {
 
       runTest {
         assertThat(keychain)
-          .suspendCall("getPassword($nonStoredKeyID)") {
+          .suspendCall("unlockAndGetPassword($nonStoredKeyID)") {
             it.unlockAndGetPassword(nonStoredKeyID)
           }
           .isNull()
@@ -218,7 +217,7 @@ internal class KeychainTests {
     @Test
     fun decryptsStoredKeyPassword() {
       val keychain = FakeKeychain.withRandomMainPassword()
-      val keyPassword = PlainPassword.newRandomWithDirectBuffer()
+      val keyPassword = PlainPassword.generate()
       runTest {
         val keyID =
           keychain.unlockAndStore(
@@ -227,7 +226,9 @@ internal class KeychainTests {
             keyPassword,
             path = null)
         assertThat(keychain)
-          .suspendCall("getPassword($keyID)") { it.unlockAndGetPassword(keyID) }
+          .suspendCall("unlockAndGetPassword($keyID)") {
+            it.unlockAndGetPassword(keyID)
+          }
           .isEqualTo(keyPassword)
       }
     }
@@ -261,7 +262,7 @@ internal class KeychainTests {
           keychain.unlockAndStore(
             title = "Lorem ipsum",
             login = "john@appleseed.com",
-            PlainPassword.newRandomWithDirectBuffer(),
+            PlainPassword.generate(),
             path = null)
         keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         assertThat(keychain)
@@ -280,7 +281,7 @@ internal class KeychainTests {
           keychain.unlockAndStore(
             title = "Lorem ipsum",
             login = "john@appleseed.com",
-            PlainPassword.newRandomWithDirectBuffer(),
+            PlainPassword.generate(),
             path = null)
         keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         assertFailure { keychain.unlockAndGetPassword(keyID) }
@@ -296,7 +297,7 @@ internal class KeychainTests {
           keychain.unlockAndStore(
             title = "Lorem ipsum",
             login = "john@appleseed.com",
-            PlainPassword.newRandomWithDirectBuffer(),
+            PlainPassword.generate(),
             path = null)
         keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         assertFailure { keychain.unlockAndRemove(keyID) }
@@ -313,7 +314,7 @@ internal class KeychainTests {
           keychain.unlockAndStore(
             title = "Lorem ipsum",
             login = "john@appleseed.com",
-            PlainPassword.newRandomWithDirectBuffer(),
+            PlainPassword.generate(),
             path = null)
         keychain.setUnlockAttemptRate(UnlockAttemptRate.EXCEEDING)
         keychain.unlockAndRemove(keyID)
@@ -345,7 +346,7 @@ internal class KeychainTests {
         keychain.unlockAndStore(
           title = "Lorem ipsum",
           login = "john@appleseed.com",
-          PlainPassword.newRandomWithDirectBuffer(),
+          PlainPassword.generate(),
           path = null)
       keychain.unlockAndRemove(keyID)
       assertThat(keychain).transform("get($keyID)") { it[keyID] }.isNull()

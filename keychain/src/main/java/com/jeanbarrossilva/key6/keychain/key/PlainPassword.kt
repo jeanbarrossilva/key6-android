@@ -42,16 +42,10 @@ import kotlin.time.Duration.Companion.seconds
  *   Changes to it affect the contents of this password.
  */
 @JvmInline
-value class PlainPassword(private val backingBuffer: CharBuffer) :
-  CharSequence {
+value class PlainPassword
+private constructor(private val backingBuffer: CharBuffer) : CharSequence {
   override val length: Int
     get() = backingBuffer.length
-
-  /**
-   * Whether this password is backed by a buffer which is backed by an array.
-   */
-  private val hasArray
-    get() = backingBuffer.hasArray()
 
   /**
    * Selector of letters (including none) that a randomly-generated password can
@@ -334,9 +328,14 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    * Returns a password whose contents equal those of this one, backed by an
    * independent buffer: changes to the contents of this password **will not**
    * affect those of the returned clone, and vice versa.
+   *
+   * This operation is **unsafe** because this password gets duplicated, and its
+   * contents are not moved to its clone.
    */
-  fun clone(): PlainPassword {
-    if (isEmpty()) return EMPTY
+  fun cloneUnsafe(): PlainPassword {
+    if (isEmpty()) {
+      return EMPTY
+    }
     val bufferDuplicate = backingBuffer.deepDuplicate()
     return PlainPassword(bufferDuplicate)
   }
@@ -347,7 +346,9 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    * has been used and will not be referenced by Key6 anymore.
    */
   fun discard() {
-    if (isEmpty()) return
+    if (isEmpty()) {
+      return
+    }
     backingBuffer.discard()
   }
 
@@ -355,16 +356,17 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
    * Returns an array containing the bytes of the UTF-16-encoded contents of
    * this password.
    *
-   * This method is the opposite of [decode], which takes in bytes of some
-   * UTF-16-encoded password; such symmetry denotes that
-   * `Companion.decode(encode()) == this`.
+   * This method is the opposite of [decodeAndMove], which takes in bytes of
+   * some UTF-16-encoded password; such symmetry denotes that
+   * `Companion.decodeAndMove(encode()) == this`.
    */
   internal fun encode() =
     // 'Charset.encode(CharBuffer)' may search for the UTF-16 encoder, but there
     // will be no character to encode in case this password is empty. We avoid
     // that unnecessary work here.
-    if (isEmpty()) byteArrayOf()
-    else {
+    if (isEmpty()) {
+      EMPTY_BYTE_ARRAY
+    } else {
       val encodedPasswordBuffer = CHARSET.encode(backingBuffer)
       backingBuffer.rewind()
       var encodedPassword: ByteArray = encodedPasswordBuffer.array()
@@ -374,8 +376,9 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       // size possibly being greater than the actual amount of UTF-16-encoded
       // characters in it. We trim the trailing padding by returning a slice
       // ranging from the start to the limit of the buffer.
-      if (encodedPassword.size > encodedPasswordLength)
+      if (encodedPassword.size > encodedPasswordLength) {
         encodedPassword = encodedPassword.sliceArray(0..<encodedPasswordLength)
+      }
 
       encodedPasswordBuffer.discard()
       encodedPassword
@@ -384,64 +387,22 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
   /**
    * Returns an array containing the characters of this password.
    *
-   * @return If:
-   * - this password has an array, such backing array; or
-   * - this password is empty, the same empty array; or
-   * - a newly-instantiated array, filled with the contents of this password.
+   * @return If this password is empty, the same empty array; else a
+   *   newly-instantiated array, filled with the contents of this password.
    *
-   * In the latter case, `discard(CharArray)`—rather than `discard()`—**must**
-   * be called afterward: because the array was instantiated by this method and,
-   * thus, **does not** back this password, discarding without passing the array
-   * in will result in the password still being in the array.
+   * In the latter case, this array **must** be passed into `discard(CharArray)`
+   * upon discarding this password: because the array was instantiated by this
+   * method and, thus, **does not** back this password, discarding without
+   * passing the array in will result in the password still being in the array.
    */
   internal fun asCharArray() =
-    if (hasArray) backingBuffer.array()
-    else if (isEmpty()) EMPTY_CHAR_ARRAY else newCharArray()
-
-  /**
-   * Discards the contents **only** of the given array, and **only** in case
-   * this password does not have an array: not having one would mean that
-   * [asCharArray] returns an independent array, that would not be discarded
-   * upon this password being discarded.
-   *
-   * @param charArray This password as an array of characters. Implied to have
-   *   resulted from calling [asCharArray] on this password.
-   */
-  internal fun discard(charArray: CharArray) {
-    // There being an array denotes that the return of the password–array
-    // conversion *is* the backing array of this password's buffer (assuming
-    // that the given array has been returned by 'asCharArray()', 'charArray'
-    // === 'toCharArray()' === 'backingBuffer.array()'); no need to proceed with
-    // the O(n) array-discarding.
-    if (hasArray) return
-
-    charArray.discard()
-  }
+    if (isEmpty()) {
+      EMPTY_CHAR_ARRAY
+    } else {
+      newCharArray()
+    }
 
   companion object {
-    /**
-     * Lengths recommended by the HOTP RFC for a generated HOTP (see
-     * [§ 5.3](https://www.rfc-editor.org/info/rfc4226/#section-5.3)).
-     * Attempting to generate a TOTP with a length outside of this range in Key6
-     * will throw an exception.
-     *
-     * @see generateTOTP
-     * @see TOTPException.LowEntropy
-     */
-    @JvmStatic val HOTP_LENGTH_RECOMMENDATION = 6..8
-
-    /**
-     * Minimum amount of bytes that a key passed as input into [generateTOTP] is
-     * required to contain, as per the TOTP RFC.
-     */
-    internal const val TOTP_MIN_KEY_SIZE_IN_BYTES = 16
-
-    /** Password without contents. */
-    @JvmStatic internal val EMPTY = newEmpty()
-
-    /** Charset for encoding and decoding passwords: UTF-16. */
-    @JvmStatic internal val CHARSET = Charsets.UTF_16
-
     /**
      * Amount of bytes for representing a character in the password [CHARSET].
      */
@@ -452,7 +413,10 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     private val DIGITS =
       charArrayOf('0', '1', '2', '3', '4', '5', '6', '7', '8', '9')
 
-    /** An array containing zero characters. */
+    /** An array without bytes. */
+    @JvmStatic private val EMPTY_BYTE_ARRAY = byteArrayOf()
+
+    /** An array without characters. */
     @JvmStatic private val EMPTY_CHAR_ARRAY = charArrayOf()
 
     /**
@@ -509,23 +473,75 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
     private val HOTP_TRUNCATION_MODULI =
       intArrayOf(1_000_000, 10_000_000, 100_000_000)
 
-    /** Instantiates a password without contents. */
-    internal fun newEmpty(): PlainPassword {
-      val backingArray: CharBuffer = ByteBuffer.allocateDirect(0).asCharBuffer()
-      return PlainPassword(backingArray)
-    }
+    /**
+     * Minimum amount of bytes that a key passed as input into [generateTOTP] is
+     * required to contain, as per the TOTP RFC.
+     */
+    internal const val TOTP_MIN_KEY_SIZE_IN_BYTES = 16
+
+    /** Password without contents. */
+    @JvmStatic internal val EMPTY = PlainPassword(newEmptyBackingBuffer(0))
+
+    /** Charset for encoding and decoding passwords: UTF-16. */
+    @JvmStatic internal val CHARSET = Charsets.UTF_16
 
     /**
-     * Instantiates a password from a [ByteArray], containing the bytes resulted
-     * from encoding the characters of the original password.
+     * Lengths recommended by the HOTP RFC for a generated HOTP (see
+     * [§ 5.3](https://www.rfc-editor.org/info/rfc4226/#section-5.3)).
+     * Attempting to generate a TOTP with a length outside of this range in Key6
+     * will throw an exception.
+     *
+     * @see generateTOTP
+     * @see TOTPException.LowEntropy
+     */
+    @JvmStatic val HOTP_LENGTH_RECOMMENDATION = 6..8
+
+    /**
+     * Instantiates a plain password with the given contents. Each character in
+     * the array is transferred to the password, such that the array will
+     * contain only NULs after this function returns.
+     *
+     * @param contents Characters of the password.
+     * @return A password with the specified contents.
+     */
+    @JvmStatic
+    internal fun move(contents: CharArray): PlainPassword =
+      if (contents.isEmpty()) {
+        EMPTY
+      } else {
+        val backingBuffer = newEmptyBackingBuffer(contents.size)
+        for (index in contents.indices) {
+          backingBuffer.put(contents[index])
+          contents[index] = '\u0000'
+        }
+        backingBuffer.rewind()
+        PlainPassword(backingBuffer)
+      }
+
+    /**
+     * Instantiates a password from an array of bytes, containing the bytes
+     * resulted from encoding the characters of the original password. Each byte
+     * is transferred from the array to the password, with the array being
+     * zeroed by the time this function returns.
      *
      * @param encodedPassword The UTF-16-encoded password to decode.
      * @see encode
      */
     @JvmStatic
-    internal fun decode(encodedPassword: ByteArray) =
-      if (encodedPassword.isEmpty()) EMPTY
-      else PlainPassword(CHARSET.decode(ByteBuffer.wrap(encodedPassword)))
+    internal fun decodeAndMove(encodedPassword: ByteArray) =
+      if (encodedPassword.isEmpty()) {
+        EMPTY
+      } else {
+        val encodedPasswordBuffer: ByteBuffer =
+          ByteBuffer.allocateDirect(encodedPassword.size)
+        for (index in encodedPassword.indices) {
+          encodedPasswordBuffer.put(encodedPassword[index])
+          encodedPassword[index] = 0
+        }
+        encodedPasswordBuffer.rewind()
+        val backingBuffer: CharBuffer = CHARSET.decode(encodedPasswordBuffer)
+        PlainPassword(backingBuffer)
+      }
 
     /**
      * Generates a password in plaintext for some keychain.
@@ -549,30 +565,10 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       allowsSymbols: Boolean,
       length: Int
     ): PlainPassword {
-      if (length <= 0) return EMPTY
-      val alphabet = newGenerationAlphabet(letters, allowsDigits, allowsSymbols)
-      if (alphabet.isEmpty()) return EMPTY
-      return PlainPassword(
-        newPopulatedGenerationBackingBuffer(rng, alphabet, length))
-    }
+      if (length <= 0) {
+        return EMPTY
+      }
 
-    /**
-     * Returns an alphabet containing all subsets according to the given
-     * generation configuration. These are all the characters by which a
-     * password generated with such parameter set may be composed, with indexing
-     * being performed by some RNG afterward.
-     *
-     * @param letters Selector of letters that may be included.
-     * @param allowsDigits Whether numbers may be included.
-     * @param allowsSymbols Whether non-alphanumeric characters may be included.
-     * @see generate
-     */
-    @JvmStatic
-    internal fun newGenerationAlphabet(
-      letters: Letters,
-      allowsDigits: Boolean,
-      allowsSymbols: Boolean
-    ): CharArray {
       // 'CharArray.plus(CharArray)' is not used here because such function
       // copies *eagerly*, without checking whether either array is or the
       // resulting union will be empty.
@@ -580,42 +576,38 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
         letters.subset.size +
           (if (allowsDigits) DIGITS.size else 0) +
           (if (allowsSymbols) SYMBOLS.size else 0)
-      if (size == 0) return EMPTY_CHAR_ARRAY
-      val alphabet = CharArray(size)
-      System.arraycopy(letters.subset, 0, alphabet, 0, letters.subset.size)
-      if (allowsDigits)
-        System.arraycopy(DIGITS, 0, alphabet, letters.subset.size, DIGITS.size)
-      if (allowsSymbols)
-        System.arraycopy(
-          SYMBOLS, 0, alphabet, alphabet.size - SYMBOLS.size, SYMBOLS.size)
-      return alphabet
-    }
-
-    /**
-     * Allocates a new buffer, filling it with characters from the given
-     * alphabet.
-     *
-     * @param rng RNG for indexing the alphabet.
-     * @param alphabet Subsets with characters allowed to be in the buffer.
-     * @param capacity Amount of characters to fill the buffer with. Because
-     *   this method is only intended to be called internally, this integer is
-     *   assumed to be positive.
-     * @see generate
-     */
-    @JvmStatic
-    internal fun newPopulatedGenerationBackingBuffer(
-      rng: Random,
-      alphabet: CharArray,
-      capacity: Int
-    ): CharBuffer {
-      assert(capacity > 0) {
-        "Capacity of buffer for generated plain password should be positive."
+      if (size == 0) {
+        return EMPTY
       }
-      val backingBuffer: CharBuffer = CharBuffer.allocate(capacity)
-      while (backingBuffer.hasRemaining()) backingBuffer.put(
-        alphabet[rng.nextInt(alphabet.size)])
+      val alphabet = CharArray(size)
+      System.arraycopy(
+        /* src = */ letters.subset,
+        /* srcPos = */ 0,
+        /* dest = */ alphabet,
+        /* destPos = */ 0,
+        /* length = */ letters.subset.size)
+      if (allowsDigits) {
+        System.arraycopy(
+          /* src = */ DIGITS,
+          /* srcPos = */ 0,
+          /* dest = */ alphabet,
+          /* destPos = */ letters.subset.size,
+          /* length = */ DIGITS.size)
+      }
+      if (allowsSymbols) {
+        System.arraycopy(
+          /* src = */ SYMBOLS,
+          /* srcPos = */ 0,
+          /* dest = */ alphabet,
+          /* destPos = */ alphabet.size - SYMBOLS.size,
+          /* length = */ SYMBOLS.size)
+      }
+      val backingBuffer = newEmptyBackingBuffer(length)
+      while (backingBuffer.hasRemaining()) {
+        backingBuffer.put(alphabet[rng.nextInt(alphabet.size)])
+      }
       backingBuffer.rewind()
-      return backingBuffer
+      return PlainPassword(backingBuffer)
     }
 
     /**
@@ -696,7 +688,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       }
       val counterAsLong = currentTime.inWholeSeconds / step.inWholeSeconds
       val counterAsByteArray = ByteArray(Byte.SIZE_BITS)
-      for (index in 0..<counterAsByteArray.size) {
+      for (index in counterAsByteArray.indices) {
         counterAsByteArray[index] =
           (counterAsLong ushr (Byte.SIZE_BITS * (Byte.SIZE_BITS - 1 - index)))
             .toByte()
@@ -711,6 +703,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       val seedSpec = SecureSecretKeySpec(seed, "RAW")
       hmac.init(seedSpec)
       val hash: ByteArray = hmac.doFinal(counterAsByteArray)
+      counterAsByteArray.discard()
       seedSpec.destroy()
       val truncationStartOffset =
         hash.last().toInt() and
@@ -728,10 +721,7 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
         HOTP_TRUNCATION_MODULI[
           length - HOTP_LENGTH_RECOMMENDATION.last +
             HOTP_TRUNCATION_MODULI.lastIndex]
-      val backingBuffer: CharBuffer =
-        ByteBuffer.allocateDirect(
-            length * CHARSET_DECODED_CHARACTER_SIZE_IN_BYTES)
-          .asCharBuffer()
+      val backingBuffer = newEmptyBackingBuffer(length)
       repeat(length) {
         backingBuffer.put(length - it - 1, (totpAsInt % 10).digitToChar())
         totpAsInt /= 10
@@ -739,13 +729,29 @@ value class PlainPassword(private val backingBuffer: CharBuffer) :
       backingBuffer.rewind()
       return PlainPassword(backingBuffer)
     }
+
+    /**
+     * Instantiates a buffer into which the given amount of characters can be
+     * put. The returned buffer is a direct one: the JVM will, as much as
+     * possible, avoid copying its contents to intermediate buffers, lessening
+     * the probability of these contents being readable by other processes.
+     *
+     * @param capacity Total amount of characters that can be put into the
+     *   buffer.
+     */
+    internal fun newEmptyBackingBuffer(capacity: Int): CharBuffer =
+      ByteBuffer.allocateDirect(
+          capacity * CHARSET_DECODED_CHARACTER_SIZE_IN_BYTES)
+        .asCharBuffer()
   }
 }
 
 /** Instantiates an array containing the characters of this sequence. */
 internal fun CharSequence.newCharArray(): CharArray {
   val charArray = CharArray(length)
-  for (index in 0..<charArray.size) charArray[index] = this[index]
+  for (index in charArray.indices) {
+    charArray[index] = this[index]
+  }
   return charArray
 }
 
@@ -757,14 +763,21 @@ internal fun CharSequence.newCharArray(): CharArray {
  * [duplicate][CharBuffer.duplicate] instead.
  */
 internal fun CharBuffer.deepDuplicate(): CharBuffer {
-  val duplicate: CharBuffer =
-    if (hasArray()) CharBuffer.allocate(capacity())
-    else ByteBuffer.allocateDirect(capacity()).asCharBuffer()
-  if (duplicate.capacity() == 0) return duplicate
-  for (index in 0..<length) duplicate.put(index, this[index])
-  duplicate.position(position())
-  duplicate.limit(limit())
-  return duplicate
+  val deepDuplicate: CharBuffer =
+    if (hasArray()) {
+      CharBuffer.allocate(capacity())
+    } else {
+      PlainPassword.newEmptyBackingBuffer(capacity())
+    }
+  if (deepDuplicate.capacity() == 0) {
+    return deepDuplicate
+  }
+  for ((index, element) in withIndex()) {
+    deepDuplicate.put(index, element)
+  }
+  deepDuplicate.position(position())
+  deepDuplicate.limit(limit())
+  return deepDuplicate
 }
 
 // On '*Array.discard()': yes, Kotlin provides '*Array.fill(Char)'. However,
@@ -774,12 +787,16 @@ internal fun CharBuffer.deepDuplicate(): CharBuffer {
 
 /** Fills this array with NUL characters. */
 internal fun CharArray.discard() {
-  for (index in 0..<size) this[index] = '\u0000'
+  for (index in indices) {
+    this[index] = '\u0000'
+  }
 }
 
 /** Fills this array with NUL bytes. */
 internal fun ByteArray.discard() {
-  for (index in 0..<size) this[index] = 0
+  for (index in indices) {
+    this[index] = 0
+  }
 }
 
 /**
@@ -808,7 +825,11 @@ internal inline fun <BufferType> BufferType.discard(
  *
  * @param ByteArray.discard
  */
-private fun ByteBuffer.discard() = discard { if (hasArray()) array().discard() }
+private fun ByteBuffer.discard() = discard {
+  if (hasArray()) {
+    array().discard()
+  }
+}
 
 /**
  * Rewinds this buffer, zeroes its limit, and discards its backing array (if
@@ -816,4 +837,8 @@ private fun ByteBuffer.discard() = discard { if (hasArray()) array().discard() }
  *
  * @param CharArray.discard
  */
-private fun CharBuffer.discard() = discard { if (hasArray()) array().discard() }
+private fun CharBuffer.discard() = discard {
+  if (hasArray()) {
+    array().discard()
+  }
+}
