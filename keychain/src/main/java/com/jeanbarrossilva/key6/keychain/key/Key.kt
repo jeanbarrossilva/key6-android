@@ -43,6 +43,9 @@ import java.util.UUID
  * @property encryptedPassword Encrypted form of the private string defined by
  *   the user as the pair to their login (if set) for authenticating at the
  *   site. If the login has been specified, this may be empty.
+ * @property encryptedTOTPSeed Encrypted form of the seed shared by the site
+ *   with Key6, from which a time-based one-time password (TOTP) can be
+ *   generated for multifactor-authenticating.
  * @property path Path to the site at which the user signed up with the given
  *   login and password. This may refer to a website, a local file (e.g., a
  *   password-protected compressed file), etc.
@@ -55,6 +58,7 @@ internal constructor(
   val salt: ByteArray,
   val iv: ByteArray,
   val encryptedPassword: ByteArray,
+  val encryptedTOTPSeed: ByteArray?,
   val path: URI?
 ) {
   override fun equals(other: Any?) =
@@ -92,6 +96,7 @@ internal constructor(
      * @param salt [Key.salt].
      * @param iv [Key.iv].
      * @param encryptedPassword [Key.encryptedPassword].
+     * @param encryptedTOTPSeed [Key.encryptedTOTPSeed].
      * @param path [Key.path].
      * @see newZeroedSalt
      * @see newZeroedIV
@@ -105,6 +110,7 @@ internal constructor(
       salt: ByteArray,
       iv: ByteArray,
       encryptedPassword: ByteArray,
+      encryptedTOTPSeed: ByteArray?,
       path: URI?
     ): Key {
       val trimmedID = id.trim()
@@ -121,7 +127,14 @@ internal constructor(
       if (salt.size != 16) throw KeyException.Non16ByteSalt(salt.size)
       if (iv.size != 12) throw KeyException.Non12ByteIV(iv.size)
       return Key(
-        id, normalizedTitle, normalizedLogin, salt, iv, encryptedPassword, path)
+        id,
+        normalizedTitle,
+        normalizedLogin,
+        salt,
+        iv,
+        encryptedPassword,
+        encryptedTOTPSeed,
+        path)
     }
 
     /**

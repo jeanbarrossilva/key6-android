@@ -390,10 +390,10 @@ private constructor(private val backingBuffer: CharBuffer) : CharSequence {
    * @return If this password is empty, the same empty array; else a
    *   newly-instantiated array, filled with the contents of this password.
    *
-   * In the latter case, this array **must** be passed into `discard(CharArray)`
-   * upon discarding this password: because the array was instantiated by this
-   * method and, thus, **does not** back this password, discarding without
-   * passing the array in will result in the password still being in the array.
+   * In the latter case, the array **must** be discarded after used: it was
+   * instantiated by this method and, thus, **does not** back this password.
+   *
+   * @see CharArray.discard
    */
   internal fun asCharArray() =
     if (isEmpty()) {
