@@ -14,11 +14,11 @@ pub fn main(init: std.process.Init) !void {
     const io = init.io;
     const cwd_path = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
     defer allocator.free(cwd_path);
-    const cwd = std.process.Child.Cwd{
+    const project_root = std.process.Child.Cwd{
         .path = std.fs.path.dirname(cwd_path).?,
     };
     const staged_paths_view =
-        try autofmt.staging.StagedPathsView.spawn(allocator, io, cwd);
+        try autofmt.staging.StagedPathsView.spawn(allocator, io, project_root);
     for (formatters) |formatter| {
         var formattable_file_paths = std.ArrayList([]const u8).empty;
         defer formattable_file_paths.deinit(allocator);
@@ -30,7 +30,12 @@ pub fn main(init: std.process.Init) !void {
                 break;
             }
         }
-        try formatter.format(allocator, io, cwd, staged_paths_view.paths);
+        try formatter.format(
+            allocator,
+            io,
+            project_root,
+            staged_paths_view.paths,
+        );
     }
     staged_paths_view.deinit(allocator);
 }
