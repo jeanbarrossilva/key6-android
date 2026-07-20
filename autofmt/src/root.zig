@@ -14,23 +14,11 @@ pub const Formatter = struct {
         cwd: std.process.Child.Cwd,
         paths: []const []const u8,
     ) !void {
-        var formattable_file_paths = std.ArrayList([]const u8).empty;
-        defer formattable_file_paths.deinit(allocator);
-        for (paths) |path| {
-            for (self.extensions) |extension| {
-                if (!std.mem.eql(u8, std.fs.path.extension(path), extension))
-                    continue;
-                try formattable_file_paths.append(allocator, path);
-                break;
-            }
-        }
-        const argv_with_paths = try allocator.alloc(
-            []const u8,
-            self.argv.len + formattable_file_paths.items.len,
-        );
+        const argv_with_paths =
+            try allocator.alloc([]const u8, self.argv.len + paths.len);
         defer allocator.free(argv_with_paths);
         @memcpy(argv_with_paths[0..self.argv.len], self.argv);
-        @memcpy(argv_with_paths[self.argv.len..], formattable_file_paths.items);
+        @memcpy(argv_with_paths[self.argv.len..], paths);
         _ = try std.process.run(allocator, io, .{
             .argv = argv_with_paths,
             .cwd = cwd,
