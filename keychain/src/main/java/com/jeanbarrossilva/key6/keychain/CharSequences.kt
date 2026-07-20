@@ -85,25 +85,35 @@ internal fun CharSequence.findConsecutions(
   if (length < 2) return emptyList()
   var consecutions: ArrayList<Consecution>? = null
   var wasInConsecution = false
-  for ((characterIndex, character) in withIndex()) if (predicate(character))
-    if (!wasInConsecution) wasInConsecution = true
-    else {
-      val consecutionIndex = characterIndex - 1
-      val consecutionCount = 2
-      if (consecutions == null) {
-        consecutions = ArrayList()
-        consecutions.add(
-          Consecution(consecutionIndex, character, consecutionCount))
+  for ((characterIndex, character) in withIndex()) {
+    if (predicate(character)) {
+      if (!wasInConsecution) {
         wasInConsecution = true
       } else {
-        val lastConsecution = consecutions.last()
-        if (lastConsecution.endIndex + 1 == characterIndex &&
-          lastConsecution.character == character)
-          lastConsecution.count++
-        else
-          consecutions.add(Consecution(consecutionIndex, character, count = 2))
+        val consecutionIndex = characterIndex - 1
+        val consecutionCount = 2
+        if (consecutions == null) {
+          consecutions = ArrayList()
+          consecutions.add(
+            Consecution(consecutionIndex, character, consecutionCount)
+          )
+          wasInConsecution = true
+        } else {
+          val lastConsecution = consecutions.last()
+          if (lastConsecution.endIndex + 1 == characterIndex &&
+            lastConsecution.character == character
+          ) {
+            lastConsecution.count++
+          } else {
+            consecutions.add(
+              Consecution(consecutionIndex, character, count = 2)
+            )
+          }
+        }
       }
+    } else {
+      wasInConsecution = false
     }
-  else wasInConsecution = false
+  }
   return consecutions ?: emptyList()
 }

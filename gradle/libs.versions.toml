@@ -45,7 +45,6 @@ tomlJ = { group = 'org.tomlj', name = 'tomlj', version = '1.1.1' }
 android-application = { id = 'com.android.application', version = '9.1.0-alpha08' }
 java = { id = 'java' }
 kotlin-symbolProcessor = { id = 'com.google.devtools.ksp', version = '2.3.4' }
-spotless = { id = 'com.diffplug.spotless', version = '8.4.0' }
 android-library = { id = "com.android.library", version = "9.1.0-alpha08" }
 
 [versions]

@@ -61,22 +61,25 @@ internal class KeyTests {
     "6fa459ea-ee8a-11e0-9000-0800200c9a66, 1",
     "9073926b-929f-31c2-abc9-fad77ae3e8eb, 3",
     "550e8400-e29b-41d4-a716-446655440000, 4",
-    "cfbff0d1-9375-5685-968c-48ce8b15ae17, 5",
+    "cfbff0d1-9375-5685-968c-48ce8b15ae17, 5"
   )
   @Suppress("SpellCheckingInspection")
   @Test
-  fun throwsIfInstantiatingKeyWithNonV7Uuid(id: String, version: Int) {
+  fun throwsIfInstantiatingKeyWithNonV7Uuid(
+    id: String,
+    version: Int
+  ) {
     assertFailure {
-        Key.new(
-          id,
-          title = "Lorem ipsum",
-          login = "john@appleseed.com",
-          salt = ByteArray(size = 16),
-          iv = ByteArray(size = 12),
-          encryptedPassword = ByteArray(size = 8),
-          path = null)
-      }
-      .isInstanceOf<KeyException.NonUuidV7ID>()
+      Key.new(
+        id,
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        salt = ByteArray(size = 16),
+        iv = ByteArray(size = 12),
+        encryptedPassword = ByteArray(size = 8),
+        path = null
+      )
+    }.isInstanceOf<KeyException.NonUuidV7ID>()
       .prop(KeyException.NonUuidV7ID::version)
       .isEqualTo(version.takeIf { it >= 0 })
   }
@@ -85,16 +88,16 @@ internal class KeyTests {
   @Test
   fun throwsIfInstantiatingKeyWithNon16ByteSalt(size: Int) {
     assertFailure {
-        Key.new(
-          Uuid.generateV7().toString(),
-          title = "Lorem ipsum",
-          login = "john@appleseed.com",
-          salt = ByteArray(size),
-          iv = ByteArray(size = 12),
-          encryptedPassword = ByteArray(size = 8),
-          path = null)
-      }
-      .isInstanceOf<KeyException.Non16ByteSalt>()
+      Key.new(
+        Uuid.generateV7().toString(),
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        salt = ByteArray(size),
+        iv = ByteArray(size = 12),
+        encryptedPassword = ByteArray(size = 8),
+        path = null
+      )
+    }.isInstanceOf<KeyException.Non16ByteSalt>()
       .prop(KeyException.Non16ByteSalt::size)
       .isEqualTo(size)
   }
@@ -103,16 +106,16 @@ internal class KeyTests {
   @Test
   fun throwsIfInstantiatingKeyWithNon12ByteIV(size: Int) {
     assertFailure {
-        Key.new(
-          Uuid.generateV7().toString(),
-          title = "Lorem ipsum",
-          login = "john@appleseed.com",
-          salt = ByteArray(size = 16),
-          iv = ByteArray(size),
-          encryptedPassword = ByteArray(size = 8),
-          path = null)
-      }
-      .isInstanceOf<KeyException.Non12ByteIV>()
+      Key.new(
+        Uuid.generateV7().toString(),
+        title = "Lorem ipsum",
+        login = "john@appleseed.com",
+        salt = ByteArray(size = 16),
+        iv = ByteArray(size),
+        encryptedPassword = ByteArray(size = 8),
+        path = null
+      )
+    }.isInstanceOf<KeyException.Non12ByteIV>()
       .prop(KeyException.Non12ByteIV::size)
       .isEqualTo(size)
   }

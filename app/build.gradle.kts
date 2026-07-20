@@ -23,12 +23,18 @@ plugins {
 }
 
 android {
-  compileSdk = libs.versions.android.sdk.target.get().toInt()
+  compileSdk =
+    libs.versions.android.sdk.target
+      .get()
+      .toInt()
   namespace = "com.jeanbarrossilva.key6"
 
   defaultConfig {
     applicationId = "com.jeanbarrossilva.key6"
-    minSdk = libs.versions.android.sdk.min.get().toInt()
+    minSdk =
+      libs.versions.android.sdk.min
+        .get()
+        .toInt()
     targetSdk = compileSdk
     versionCode = 1
     versionName = "1.0"

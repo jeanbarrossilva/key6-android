@@ -8,6 +8,8 @@
 !.idea/icon.svg
 !.idea/copyright
 !.idea/dictionaries
+autofmt/.zig-cache/
+autofmt/zig-out/
 build/
 /app/default/release
 *.iml

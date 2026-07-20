@@ -35,91 +35,93 @@ import com.jeanbarrossilva.key6.keychain.key.test.generate
  *   the instantiated keychain, in plaintext.
  */
 internal class FakeKeychain
-private constructor(internal val mainPassword: PlainPassword) :
-  Keychain(mainPassword) {
-  /**
-   * Keys stored in this keychain by a prior call to [unlockAndStore], and that
-   * have not yet been removed. The string to which each of them is associated
-   * is their identifier, allowing for O(1) retrievals through calls to [get].
-   */
-  private val storage = HashMap<String, Key>()
-
-  /**
-   * Determines the amount of times an incorrect main password will be provided
-   * by this keychain upon attempts to unlock it.
-   */
-  private var unlockAttemptRate = UnlockAttemptRate.DEFAULT
-
-  /**
-   * Amount of times attempts to unlock this keychain were made in the current
-   * streak.
-   *
-   * This starts off as zero, may be incremented depending on the set attempt
-   * rate, and will be zeroed after the incorrect main password is provided by
-   * this keychain *n* times, where *n* is
-   * `unlockAttemptRate.targetCount(this)`.
-   *
-   * @see unlockAttemptRate
-   * @see UnlockAttemptRate.targetCount
-   */
-  private var currentUnlockAttemptCount = 0
-
-  override suspend fun store(key: Key) {
-    storage[key.id] = key
-  }
-
-  override suspend fun get(keyID: String) = storage[keyID]
-
-  override suspend fun requestMainPassword() =
-    if (currentUnlockAttemptCount <
-      unlockAttemptRate.targetCount(maxUnlockAttemptCount)) {
-      currentUnlockAttemptCount++
-      unlockAttemptRate.generateMainPassword(this)
-    } else {
-      currentUnlockAttemptCount = 0
-
-      // requestMainPassword() is called by the keychain when an unlock is
-      // attempted; afterward, the password returned here is discarded
-      // internally. Hence, the clone.
-      mainPassword.cloneUnsafe()
-    }
-
-  override suspend fun remove(keyID: String) {
-    storage.remove(keyID)
-  }
-
-  /**
-   * Changes the unlock attempt rate of this keychain, which determines the
-   * amount of times an incorrect main password will be provided by this
-   * keychain upon attempts to unlock it.
-   *
-   * @param unlockAttemptRate The new unlock attempt rate of this keychain.
-   */
-  fun setUnlockAttemptRate(unlockAttemptRate: UnlockAttemptRate) {
-    this.unlockAttemptRate = unlockAttemptRate
-  }
-
-  companion object {
-    /** Instantiates an unsecure keychain with a random main password. */
-    @JvmStatic
-    fun withRandomMainPassword() = withMainPassword(PlainPassword.generate())
+  private constructor(
+    internal val mainPassword: PlainPassword
+  ) : Keychain(mainPassword) {
+    /**
+     * Keys stored in this keychain by a prior call to [unlockAndStore], and that
+     * have not yet been removed. The string to which each of them is associated
+     * is their identifier, allowing for O(1) retrievals through calls to [get].
+     */
+    private val storage = HashMap<String, Key>()
 
     /**
-     * Instantiates this type of keychain with its main password specified in
-     * plaintext (i.e., unhashed). For security, it will be hashed by the time
-     * this function returns, and its plaintext form will become unrecoverable
-     * (assuming that such form remains unreferenced after calling this
-     * function).
-     *
-     * @param mainPassword Single password for accessing every key stored into
-     *   the instantiated keychain, in plaintext.
+     * Determines the amount of times an incorrect main password will be provided
+     * by this keychain upon attempts to unlock it.
      */
-    @JvmStatic
-    @Throws(KeychainException::class)
-    fun withMainPassword(mainPassword: PlainPassword) =
-      FakeKeychain(mainPassword)
+    private var unlockAttemptRate = UnlockAttemptRate.DEFAULT
+
+    /**
+     * Amount of times attempts to unlock this keychain were made in the current
+     * streak.
+     *
+     * This starts off as zero, may be incremented depending on the set attempt
+     * rate, and will be zeroed after the incorrect main password is provided by
+     * this keychain *n* times, where *n* is
+     * `unlockAttemptRate.targetCount(this)`.
+     *
+     * @see unlockAttemptRate
+     * @see UnlockAttemptRate.targetCount
+     */
+    private var currentUnlockAttemptCount = 0
+
+    override suspend fun store(key: Key) {
+      storage[key.id] = key
+    }
+
+    override suspend fun get(keyID: String) = storage[keyID]
+
+    override suspend fun requestMainPassword() =
+      if (currentUnlockAttemptCount <
+        unlockAttemptRate.targetCount(maxUnlockAttemptCount)
+      ) {
+        currentUnlockAttemptCount++
+        unlockAttemptRate.generateMainPassword(this)
+      } else {
+        currentUnlockAttemptCount = 0
+
+        // requestMainPassword() is called by the keychain when an unlock is
+        // attempted; afterward, the password returned here is discarded
+        // internally. Hence, the clone.
+        mainPassword.cloneUnsafe()
+      }
+
+    override suspend fun remove(keyID: String) {
+      storage.remove(keyID)
+    }
+
+    /**
+     * Changes the unlock attempt rate of this keychain, which determines the
+     * amount of times an incorrect main password will be provided by this
+     * keychain upon attempts to unlock it.
+     *
+     * @param unlockAttemptRate The new unlock attempt rate of this keychain.
+     */
+    fun setUnlockAttemptRate(unlockAttemptRate: UnlockAttemptRate) {
+      this.unlockAttemptRate = unlockAttemptRate
+    }
+
+    companion object {
+      /** Instantiates an unsecure keychain with a random main password. */
+      @JvmStatic
+      fun withRandomMainPassword() = withMainPassword(PlainPassword.generate())
+
+      /**
+       * Instantiates this type of keychain with its main password specified in
+       * plaintext (i.e., unhashed). For security, it will be hashed by the time
+       * this function returns, and its plaintext form will become unrecoverable
+       * (assuming that such form remains unreferenced after calling this
+       * function).
+       *
+       * @param mainPassword Single password for accessing every key stored into
+       *   the instantiated keychain, in plaintext.
+       */
+      @JvmStatic
+      @Throws(KeychainException::class)
+      fun withMainPassword(mainPassword: PlainPassword) =
+        FakeKeychain(mainPassword)
+    }
   }
-}
 
 /**
  * Indicates the amount of times an incorrect main password will be provided by
@@ -167,12 +169,14 @@ internal enum class UnlockAttemptRate {
     when (this) {
       LOWEST -> keychain.mainPassword
       MID,
-      EXCEEDING ->
+      EXCEEDING
+      ->
         keychain.generatePlainPassword(
           PlainPassword.Letters.WITH_DIACRITICS,
           allowsDigits = true,
           allowsSymbols = true,
-          length = keychain.mainPassword.length / 2)
+          length = keychain.mainPassword.length / 2
+        )
     }
 
   /**

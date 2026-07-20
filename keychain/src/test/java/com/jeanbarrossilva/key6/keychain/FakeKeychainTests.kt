@@ -28,7 +28,8 @@ import org.junit.Rule
 import org.junit.Test
 
 internal class FakeKeychainTests {
-  @JvmField @Rule val retryRule = RetryRule()
+  @JvmField @Rule
+  val retryRule = RetryRule()
 
   @Retry(times = 4)
   @Test

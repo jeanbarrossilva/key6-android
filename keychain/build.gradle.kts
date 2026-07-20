@@ -6,7 +6,8 @@ plugins {
 dependencies {
   compileOnly(libs.jspecify) {
     because(
-      "Spring Security Crypto annotates its Argon2 encoder with @Nullable.")
+      "Spring Security Crypto annotates its Argon2 encoder with @Nullable."
+    )
   }
   implementation(libs.apache.commons.lang)
   implementation(libs.apache.commons.logging) {

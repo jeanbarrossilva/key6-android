@@ -29,7 +29,8 @@ import java.lang.reflect.AccessibleObject
  * @see AccessibleObject.isAccessible
  */
 fun <I : AccessibleObject, O> I.access(access: I.() -> O): O {
-  @Suppress("DEPRECATION") val wasAccessible = isAccessible
+  @Suppress("DEPRECATION")
+  val wasAccessible = isAccessible
   isAccessible = true
   return access().also { isAccessible = wasAccessible }
 }

@@ -188,7 +188,7 @@ abstract class Keychain {
     get() =
       inactivityThresholdInMilliseconds == 0L ||
         System.currentTimeMillis() - lastActivityTimeInMilliseconds >=
-          inactivityThresholdInMilliseconds
+        inactivityThresholdInMilliseconds
 
   /**
    * Amount of time required to have passed since the last time in which this
@@ -206,8 +206,12 @@ abstract class Keychain {
    */
   var inactivityThreshold
     get() =
-      if (inactivityThresholdInMilliseconds == 0L) Duration.ZERO
-      else inactivityThresholdInMilliseconds.milliseconds
+      if (inactivityThresholdInMilliseconds == 0L) {
+        Duration.ZERO
+      } else {
+        inactivityThresholdInMilliseconds.milliseconds
+      }
+
     @Throws(IllegalArgumentException::class)
     set(inactivityThreshold) {
       require(inactivityThreshold >= Duration.ZERO) {
@@ -301,9 +305,9 @@ abstract class Keychain {
    *
    * @param message Description of why this exception was thrown.
    */
-  sealed class StorageException(message: String) :
-    IllegalArgumentException(message) {
-
+  sealed class StorageException(
+    message: String
+  ) : IllegalArgumentException(message) {
     /** Thrown if a key without a title is tried to be instantiated. */
     class Untitled internal constructor() :
       StorageException("Key cannot be untitled.")
@@ -311,7 +315,8 @@ abstract class Keychain {
     /** Thrown when instantiating a key without both a login and a password. */
     class Insufficient internal constructor() :
       StorageException(
-        "A key is required to have one of the two: a login or a password.")
+        "A key is required to have one of the two: a login or a password."
+      )
   }
 
   /**
@@ -360,13 +365,13 @@ abstract class Keychain {
     allowsDigits: Boolean,
     allowsSymbols: Boolean,
     length: Int
-  ) =
-    PlainPassword.generate(
-      csprng,
-      letters,
-      allowsDigits,
-      allowsSymbols,
-      min(length, MAX_GENERATED_PLAIN_PASSWORD_LENGTH))
+  ) = PlainPassword.generate(
+    csprng,
+    letters,
+    allowsDigits,
+    allowsSymbols,
+    min(length, MAX_GENERATED_PLAIN_PASSWORD_LENGTH)
+  )
 
   /**
    * Stores a key into this keychain.
@@ -386,7 +391,8 @@ abstract class Keychain {
   @Throws(
     IncorrectMainPasswordException::class,
     StorageException::class,
-    RuntimeException::class)
+    RuntimeException::class
+  )
   suspend fun unlockAndStore(
     title: String,
     login: String,
@@ -395,8 +401,9 @@ abstract class Keychain {
   ): String {
     val (normalizedTitle, normalizedLogin) =
       Key.validateAndNormalize(title, login)
-    if (normalizedLogin.isEmpty() && password.isBlank())
+    if (normalizedLogin.isEmpty() && password.isBlank()) {
       throw StorageException.Insufficient()
+    }
     val id = Uuid.generateV7().toString()
     val salt = Key.newZeroedSalt()
     csprng.nextBytes(salt)
@@ -407,7 +414,14 @@ abstract class Keychain {
     derivedPassphrase.discard()
     val key =
       Key(
-        id, normalizedTitle, normalizedLogin, salt, iv, encryptedPassword, path)
+        id,
+        normalizedTitle,
+        normalizedLogin,
+        salt,
+        iv,
+        encryptedPassword,
+        path
+      )
     store(key)
     return key.id
   }
@@ -524,6 +538,12 @@ abstract class Keychain {
     return PlainPassword.decodeAndMove(encodedPasswordContents)
   }
 
+  // We derive from the main password; there may be a potential for improvement
+  // here. 1Password, for example, generates their Secret Key on device, from
+  // which their equivalent of our passphrase is derived.
+  //
+  // https://agilebits.github.io/security-design/deepKeys.html#combining-with-the-secret-key
+
   /**
    * First step of a key's password encryption, in which this keychain's main
    * password is hashed using PBKDF2, deriving a passphrase from it to be passed
@@ -541,12 +561,6 @@ abstract class Keychain {
    * @see requestMainPassword
    * @see ByteArray.fill
    */
-
-  // We derive from the main password; there may be a potential for improvement
-  // here. 1Password, for example, generates their Secret Key on device, from
-  // which their equivalent of our passphrase is derived.
-  //
-  // https://agilebits.github.io/security-design/deepKeys.html#combining-with-the-secret-key
   @Throws(IncorrectMainPasswordException::class)
   private suspend fun unlockAndDerivePassphrase(salt: ByteArray): ByteArray {
     val mainPassword = unlockAndKeepMainPassword()
@@ -554,7 +568,11 @@ abstract class Keychain {
     val sizeInBits = 256
     val spec =
       PBEKeySpec(
-        mainPasswordAsArray, salt, /* iterationCount= */ 1 shl 21, sizeInBits)
+        mainPasswordAsArray,
+        salt, // iterationCount=
+        1 shl 21,
+        sizeInBits
+      )
 
     // The main password and the array obtained from it are discarded because
     // JVM's GC may not be deterministic; this way, they will remain
@@ -565,7 +583,8 @@ abstract class Keychain {
     mainPasswordAsArray.discard()
 
     val passphrase =
-      SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+      SecretKeyFactory
+        .getInstance("PBKDF2WithHmacSHA256")
         .generateSecret(spec)
         .encoded
 
@@ -615,9 +634,13 @@ abstract class Keychain {
     var unlockAttemptCount = 0
     while (true) {
       requestedMainPassword = requestMainPassword()
-      if (mainPasswordHasher.isMatch(requestedMainPassword)) break
-      else if (unlockAttemptCount < maxUnlockAttemptCount) unlockAttemptCount++
-      else throw IncorrectMainPasswordException()
+      if (mainPasswordHasher.isMatch(requestedMainPassword)) {
+        break
+      } else if (unlockAttemptCount < maxUnlockAttemptCount) {
+        unlockAttemptCount++
+      } else {
+        throw IncorrectMainPasswordException()
+      }
     }
     markAsActive()
     return requestedMainPassword
@@ -673,8 +696,9 @@ abstract class Keychain {
           it.count >= mainPassword.length / 2
         }
       }
-      if (mainPassword.length < 8 || areMostCharactersWhitespaces())
+      if (mainPassword.length < 8 || areMostCharactersWhitespaces()) {
         throw KeychainException.ShortMainPassword()
+      }
     }
   }
 }
@@ -684,8 +708,9 @@ abstract class Keychain {
  *
  * @param message Description of why this exception was thrown.
  */
-sealed class KeychainException(message: String) :
-  IllegalArgumentException(message) {
+sealed class KeychainException(
+  message: String
+) : IllegalArgumentException(message) {
   /**
    * Thrown if a keychain is attempted to be instantiated with a main password
    * with less than 8 characters; or in case it is mostly filled with
@@ -693,5 +718,6 @@ sealed class KeychainException(message: String) :
    */
   class ShortMainPassword internal constructor() :
     KeychainException(
-      "Main password of a keychain should contain at least 8 characters.")
+      "Main password of a keychain should contain at least 8 characters."
+    )
 }

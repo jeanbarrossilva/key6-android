@@ -61,7 +61,9 @@ import org.springframework.security.crypto.keygen.BytesKeyGenerator
  *   contained in the salts of password hashes.
  * @see hash
  */
-internal class Argon2iHasher(private val csprng: SecureRandom) {
+internal class Argon2iHasher(
+  private val csprng: SecureRandom
+) {
   /**
    * Backing Argon2i encoder, to which hashing and matching are delegated.
    *
@@ -161,9 +163,10 @@ internal class Argon2iHasher(private val csprng: SecureRandom) {
         SALT_LENGTH_IN_BYTES,
         /* hashLength = */ 16,
         /* parallelism = */ runtime.availableProcessors(),
-        /* memory = */ min(
-          ((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
-        /* iterations = */ 2)
+        /* memory = */
+        min(((freeAvailableMemoryInKibibytes) * .15).toInt(), 1 shl 16),
+        /* iterations = */ 2
+      )
     encoder::class.java.getDeclaredField("saltGenerator").access {
       set(encoder, saltGenerator)
     }

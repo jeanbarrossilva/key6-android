@@ -63,8 +63,7 @@ internal class CharArraysTests {
       assertThat(characters)
         .transform("findConsecutions(Char::isWhitespace)") {
           it.findConsecutions(Char::isWhitespace)
-        }
-        .isEmpty()
+        }.isEmpty()
     }
 
     @Test
@@ -72,11 +71,11 @@ internal class CharArraysTests {
       assertThat("1 2  3   4    ")
         .transform("findConsecutions(Char::isWhitespace)") {
           it.findConsecutions(Char::isWhitespace)
-        }
-        .containsExactly(
+        }.containsExactly(
           Consecution(index = 3, character = ' ', count = 2),
           Consecution(index = 6, character = ' ', count = 3),
-          Consecution(index = 10, character = ' ', count = 4))
+          Consecution(index = 10, character = ' ', count = 4)
+        )
     }
   }
 }

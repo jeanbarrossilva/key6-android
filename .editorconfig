@@ -29,6 +29,25 @@ insert_final_newline = true
 max_line_length = 80
 trim_trailing_whitespace = true
 
+[*.{kt,kts}]
+ij_kotlin_allow_trailing_comma = false
+ij_kotlin_allow_trailing_comma_on_call_site = false
+ij_kotlin_imports_layout = *
+ktlint_standard_comment-wrapping = disabled
+ktlint_standard_no-single-line-block-comment = disabled
+
+[*.kt]
+ktlint_standard_filename = disabled
+
+[*Tests.kt]
+ktlint_standard_max-line-length = disabled
+
+[/app/build/**/*.kt]
+ktlint_standard = disabled
+
+[keychain/src/main/java/com/jeanbarrossilva/key6/keychain/key/PlainPassword.kt]
+ktlint_argument_list_wrapping_ignore_when_parameter_count_greater_or_equal_than = 1
+
 [*.xml]
 ij_xml_align_attributes = true
 ij_xml_attribute_wrap = on_every_item

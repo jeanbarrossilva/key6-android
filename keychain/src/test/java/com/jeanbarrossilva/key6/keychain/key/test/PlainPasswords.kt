@@ -31,7 +31,8 @@ internal fun PlainPassword.Companion.generate() =
     PlainPassword.Letters.WITH_DIACRITICS,
     allowsDigits = true,
     allowsSymbols = true,
-    length = 128)
+    length = 128
+  )
 
 /**
  * Returns a password based on this string.

@@ -23,8 +23,14 @@ plugins {
 
 android {
   buildFeatures.viewBinding = true
-  compileSdk = libs.versions.android.sdk.target.get().toInt()
-  defaultConfig.minSdk = libs.versions.android.sdk.min.get().toInt()
+  compileSdk =
+    libs.versions.android.sdk.target
+      .get()
+      .toInt()
+  defaultConfig.minSdk =
+    libs.versions.android.sdk.min
+      .get()
+      .toInt()
   namespace = "com.jeanbarrossilva.key6.feature.locket"
 }
 
