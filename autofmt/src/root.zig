@@ -37,11 +37,3 @@ pub const Formatter = struct {
         });
     }
 };
-
-fn isSuffixed(self: []const u8, prefix: []const u8) bool {
-    return self.len >= prefix.len and std.mem.eql(
-        u8,
-        prefix,
-        self[self.len - prefix.len .. self.len],
-    );
-}
