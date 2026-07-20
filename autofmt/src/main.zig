@@ -1,6 +1,14 @@
 const std = @import("std");
 const autofmt = @import("autofmt");
 
+const formatters = [_]autofmt.Formatter{
+    .{
+        .identifier = "kt",
+        .extensions = &.{ ".kt", ".kts" },
+        .argv = &.{ "ktfmt", "--format" },
+    },
+};
+
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
@@ -12,13 +20,6 @@ pub fn main(init: std.process.Init) !void {
     defer allocator.free(cwd_path);
     const cwd = std.process.Child.Cwd{
         .path = std.fs.path.dirname(cwd_path).?,
-    };
-    const formatters = [_]autofmt.Formatter{
-        .{
-            .identifier = "kt",
-            .extensions = &.{ ".kt", ".kts" },
-            .argv = &.{ "ktfmt", "--format" },
-        },
     };
     if (try autofmt.staging.StagedPathsView.spawn(
         allocator,
