@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const StagedFilesView = struct {
+pub const StagedPathsView = struct {
     result: std.process.RunResult,
     paths: []const []const u8,
 
@@ -10,7 +10,7 @@ pub const StagedFilesView = struct {
         end,
     };
 
-    pub fn deinit(self: StagedFilesView, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: StagedPathsView, allocator: std.mem.Allocator) void {
         free(allocator, self.result);
         allocator.free(self.paths);
     }
@@ -19,7 +19,7 @@ pub const StagedFilesView = struct {
         allocator: std.mem.Allocator,
         io: std.Io,
         cwd: std.process.Child.Cwd,
-    ) std.process.RunError!?StagedFilesView {
+    ) std.process.RunError!?StagedPathsView {
         var git_status = try std.process.run(allocator, io, .{
             .argv = &.{ "git", "status", "--porcelain" },
             .cwd = cwd,

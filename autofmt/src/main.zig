@@ -20,19 +20,13 @@ pub fn main(init: std.process.Init) !void {
             .argv = &.{ "ktfmt", "--format" },
         },
     };
-    if (try autofmt.staging.StagedFilesView.spawn(
+    if (try autofmt.staging.StagedPathsView.spawn(
         allocator,
         io,
         cwd,
-    )) |staged_files_view| {
-        for (formatters) |code_formatter| {
-            try code_formatter.format(
-                allocator,
-                io,
-                cwd,
-                staged_files_view.paths,
-            );
-        }
-        staged_files_view.deinit(allocator);
+    )) |staged_paths_view| {
+        for (formatters) |formatter|
+            try formatter.format(allocator, io, cwd, staged_paths_view.paths);
+        staged_paths_view.deinit(allocator);
     }
 }
