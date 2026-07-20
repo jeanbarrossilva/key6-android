@@ -18,8 +18,10 @@ pub const Formatter = struct {
         defer formattable_file_paths.deinit(allocator);
         for (paths) |path| {
             for (self.extensions) |extension| {
-                if (isSuffixed(path, extension))
-                    try formattable_file_paths.append(allocator, path);
+                if (!std.mem.eql(u8, std.fs.path.extension(path), extension))
+                    continue;
+                try formattable_file_paths.append(allocator, path);
+                break;
             }
         }
         const argv_with_paths = try allocator.alloc(
