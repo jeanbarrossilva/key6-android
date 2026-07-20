@@ -74,10 +74,7 @@ pub const StagedFilesView = struct {
         };
     }
 
-    pub fn free(
-        allocator: std.mem.Allocator,
-        result: std.process.RunResult
-    ) void {
+    pub fn free(allocator: std.mem.Allocator, result: std.process.RunResult) void {
         allocator.free(result.stdout);
         allocator.free(result.stderr);
     }
