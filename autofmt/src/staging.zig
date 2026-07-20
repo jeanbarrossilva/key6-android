@@ -1,7 +1,7 @@
 const std = @import("std");
 
 pub const StagedPathsView = struct {
-    result: std.process.RunResult,
+    result: ?std.process.RunResult,
     paths: []const []const u8,
 
     const LineScan = union(enum) {
@@ -10,16 +10,23 @@ pub const StagedPathsView = struct {
         end,
     };
 
+    const empty = StagedPathsView{
+        .result = null,
+        .paths = &.{},
+    };
+
     pub fn deinit(self: StagedPathsView, allocator: std.mem.Allocator) void {
-        free(allocator, self.result);
-        allocator.free(self.paths);
+        if (self.result) |result| {
+            free(allocator, result);
+            allocator.free(self.paths);
+        }
     }
 
     pub fn spawn(
         allocator: std.mem.Allocator,
         io: std.Io,
         cwd: std.process.Child.Cwd,
-    ) std.process.RunError!?StagedPathsView {
+    ) std.process.RunError!StagedPathsView {
         var git_status = try std.process.run(allocator, io, .{
             .argv = &.{ "git", "status", "--porcelain" },
             .cwd = cwd,
@@ -28,7 +35,7 @@ pub const StagedPathsView = struct {
             git_status.stdout.len == 1 and git_status.stdout[0] == '\n';
         if (is_empty) {
             free(allocator, git_status);
-            return null;
+            return .empty;
         }
         var paths = std.ArrayList([]const u8).empty;
         var line_scan = LineScan.start;
@@ -74,7 +81,7 @@ pub const StagedPathsView = struct {
         };
     }
 
-    pub fn free(allocator: std.mem.Allocator, result: std.process.RunResult) void {
+    fn free(allocator: std.mem.Allocator, result: std.process.RunResult) void {
         allocator.free(result.stdout);
         allocator.free(result.stderr);
     }
