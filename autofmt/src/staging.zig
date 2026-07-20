@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const StagedFilesView = struct {
     result: std.process.RunResult,
-    paths: [][]const u8,
+    paths: []const []const u8,
 
     const LineScan = union(enum) {
         start,
