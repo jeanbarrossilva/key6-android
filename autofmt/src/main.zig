@@ -19,6 +19,7 @@ pub fn main(init: std.process.Init) !void {
     };
     const staged_paths_view =
         try autofmt.staging.StagedPathsView.spawn(allocator, io, project_root);
+    defer staged_paths_view.deinit(allocator);
     for (formatters) |formatter| {
         var formattable_file_paths = std.ArrayList([]const u8).empty;
         defer formattable_file_paths.deinit(allocator);
@@ -37,5 +38,4 @@ pub fn main(init: std.process.Init) !void {
             staged_paths_view.paths,
         );
     }
-    staged_paths_view.deinit(allocator);
 }
