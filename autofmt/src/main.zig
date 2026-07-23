@@ -1,41 +1,53 @@
 const autofmt = @import("autofmt");
+const build = @import("build");
+const clap = @import("clap");
 const std = @import("std");
 
+const parameters = clap.parseParamsComptime(
+    \\-h, --help    Display information on how to use this program.
+    \\-s, --staged  Only formats files that will be included in the next Git commit.
+);
 const formatters = [_]autofmt.Formatter{
     .{
         .identifier = "kt",
         .extensions = &.{ ".kt", ".kts" },
-        .argv = &.{ "ktfmt", "--format" },
+        .arguments = &.{ "ktlint", "--format" },
     },
 };
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
-    const cwd_path = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
-    defer allocator.free(cwd_path);
     const project_root = std.process.Child.Cwd{
-        .path = std.fs.path.dirname(cwd_path).?,
+        .path = std.fs.path.dirname(build.root_path) orelse build.root_path,
     };
-    const staged_paths_view =
-        try autofmt.staging.StagedPathsView.spawn(allocator, io, project_root);
-    defer staged_paths_view.deinit(allocator);
+    var diagnostic = clap.Diagnostic{};
+    const options = clap.parse(
+        clap.Help,
+        &parameters,
+        clap.parsers.default,
+        init.minimal.args,
+        .{
+            .allocator = allocator,
+            .diagnostic = &diagnostic,
+        },
+    ) catch |err| {
+        try diagnostic.reportToFile(io, .stderr(), err);
+        return err;
+    };
+    defer options.deinit();
+    if (options.args.help != 0)
+        return;
+    const file_inclusion: autofmt.FileInclusion =
+        if (options.args.staged == 0) .all else .staged;
     for (formatters) |formatter| {
-        var formattable_file_paths = std.ArrayList([]const u8).empty;
-        defer formattable_file_paths.deinit(allocator);
-        for (staged_paths_view.paths) |path| {
-            for (formatter.extensions) |extension| {
-                if (!std.mem.eql(u8, std.fs.path.extension(path), extension))
-                    continue;
-                try formattable_file_paths.append(allocator, path);
-                break;
-            }
-        }
-        try formatter.format(
+        const paths_view = try file_inclusion.paths(
             allocator,
             io,
             project_root,
-            staged_paths_view.paths,
+            formatter,
         );
+        defer paths_view.deinit();
+        try formatter.format(allocator, io, project_root, paths_view.paths);
     }
 }

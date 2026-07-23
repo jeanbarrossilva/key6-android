@@ -1,6 +1,7 @@
 const std = @import("std");
 
 pub const StagedPathsView = struct {
+    allocator: ?std.mem.Allocator,
     result: ?std.process.RunResult,
     paths: []const []const u8,
 
@@ -11,13 +12,14 @@ pub const StagedPathsView = struct {
     };
 
     const empty = StagedPathsView{
+        .allocator = null,
         .result = null,
         .paths = &.{},
     };
 
-    pub fn deinit(self: StagedPathsView, allocator: std.mem.Allocator) void {
-        if (self.result) |result| {
-            free(allocator, result);
+    pub fn deinit(self: StagedPathsView) void {
+        if (self.allocator) |allocator| {
+            free(allocator, self.result.?);
             allocator.free(self.paths);
         }
     }
@@ -76,6 +78,7 @@ pub const StagedPathsView = struct {
             try paths.append(allocator, line[path_index..]);
         }
         return .{
+            .allocator = allocator,
             .result = git_status,
             .paths = try paths.toOwnedSlice(allocator),
         };

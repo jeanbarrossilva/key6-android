@@ -9,6 +9,7 @@
 !.idea/copyright
 !.idea/dictionaries
 autofmt/.zig-cache/
+autofmt/.zig-pkg/
 autofmt/zig-out/
 build/
 /app/default/release
