@@ -22,7 +22,7 @@ pub fn main(init: std.process.Init) !void {
         .path = std.fs.path.dirname(build.root_path) orelse build.root_path,
     };
     var diagnostic = clap.Diagnostic{};
-    const options = clap.parse(
+    const input = clap.parse(
         clap.Help,
         &parameters,
         clap.parsers.default,
@@ -35,11 +35,11 @@ pub fn main(init: std.process.Init) !void {
         try diagnostic.reportToFile(io, .stderr(), err);
         return err;
     };
-    defer options.deinit();
-    if (options.args.help != 0)
-        return;
+    defer input.deinit();
+    if (input.args.help != 0)
+        return clap.helpToFile(io, .stdout(), clap.Help, &parameters, .{});
     const file_inclusion: autofmt.FileInclusion =
-        if (options.args.staged == 0) .all else .staged;
+        if (input.args.staged == 0) .all else .staged;
     for (formatters) |formatter| {
         const paths_view = try file_inclusion.paths(
             allocator,
