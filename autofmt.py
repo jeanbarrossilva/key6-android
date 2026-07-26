@@ -10,12 +10,15 @@ if __name__ == '__main__':
     [
       "zig",
       "fetch",
-      "https://github.com/Hejsil/zig-clap/archive/refs/tags/<REPLACE ME>.tar.gz"
+      "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.12.0.tar.gz"
     ],
     capture_output=True,
     cwd=autofmt_dir,
     text=True
   )
+  if (zig_fetch.returncode != 0):
+    print(zig_fetch.stderr, file=stderr)
+    zig_fetch.check_returncode()
   zig_build = subprocess.run(
     ["zig", "build"],
     capture_output=True,
@@ -27,7 +30,7 @@ if __name__ == '__main__':
     zig_build.check_returncode()
   autofmt = subprocess.run(
     ["./autofmt", *argv[1:]],
-    capture_output = True,
+    capture_output=True,
     cwd=autofmt_dir / "zig-out" / "bin",
     text=True
   )

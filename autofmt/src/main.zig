@@ -5,6 +5,7 @@ const std = @import("std");
 
 const parameters = clap.parseParamsComptime(
     \\-h, --help    Display information on how to use this program.
+    \\-p, --print   Print the paths of files that have been formatted after formatting them.
     \\-s, --staged  Only formats files that will be included in the next Git commit.
 );
 const formatters = [_]autofmt.Formatter{
@@ -40,14 +41,17 @@ pub fn main(init: std.process.Init) !void {
         return clap.helpToFile(io, .stdout(), clap.Help, &parameters, .{});
     const file_inclusion: autofmt.FileInclusion =
         if (input.args.staged == 0) .all else .staged;
-    for (formatters) |formatter| {
-        const paths_view = try file_inclusion.paths(
-            allocator,
-            io,
-            project_root,
-            formatter,
-        );
-        defer paths_view.deinit();
-        try formatter.format(allocator, io, project_root, paths_view.paths);
-    }
+    var stdout_buffer: [4096]u8 = undefined;
+    var stdout_writer = if (input.args.print == 0)
+        null
+    else
+        std.Io.File.stdout().writer(io, &stdout_buffer);
+    try autofmt.run(
+        allocator,
+        io,
+        project_root,
+        &stdout_writer,
+        file_inclusion,
+        &formatters,
+    );
 }
