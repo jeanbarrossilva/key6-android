@@ -1,4 +1,4 @@
-const allocators = @import("allocators.zig");
+const run_results = @import("run_results.zig");
 const std = @import("std");
 
 pub const FileInclusion = enum {
@@ -52,7 +52,7 @@ const PathsView = struct {
 
     fn deinit(self: *@This()) void {
         if (self.allocator) |allocator| {
-            allocators.deinit(allocator, self.result.?);
+            run_results.deinit(self.result.?, allocator);
             self.backing_paths.deinit(allocator);
         }
     }
@@ -145,7 +145,7 @@ const PathsView = struct {
             .cwd = cwd,
         });
         if (git_status.stdout.len == 0) {
-            allocators.deinit(allocator, git_status);
+            run_results.deinit(git_status, allocator);
             return .empty;
         }
         var backing_paths = std.ArrayList([]const u8).empty;
@@ -277,7 +277,7 @@ pub const Formatter = struct {
             .argv = arguments,
             .cwd = cwd,
         });
-        allocators.deinit(allocator, result);
+        run_results.deinit(result, allocator);
     }
 };
 
