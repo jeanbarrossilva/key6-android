@@ -86,6 +86,12 @@ const PathsView = struct {
         }
         defer {
             for (find_arguments.items) |argument|
+                // this is not ideal: files are not exempt from their names
+                // starting with an asterisk; if that happens, it'll be freed,
+                // and 'find' will end up receiving garbage.
+                //
+                // for now, as autofmt is built into the Key6 project, this is
+                // fine.
                 if (argument[0] == '*')
                     allocator.free(argument);
         }
