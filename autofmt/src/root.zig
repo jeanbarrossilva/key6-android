@@ -1,3 +1,4 @@
+const allocators = @import("allocators.zig");
 const std = @import("std");
 
 pub const FileInclusion = enum {
@@ -49,9 +50,9 @@ const PathsView = struct {
     };
     const find_argv_prefix = &.{ "find", "." };
 
-    pub fn deinit(self: *@This()) void {
+    fn deinit(self: *@This()) void {
         if (self.allocator) |allocator| {
-            deinitResult(allocator, self.result.?);
+            allocators.deinit(allocator, self.result.?);
             self.backing_paths.deinit(allocator);
         }
     }
@@ -138,7 +139,7 @@ const PathsView = struct {
             .cwd = cwd,
         });
         if (git_status.stdout.len == 0) {
-            deinitResult(allocator, git_status);
+            allocators.deinit(allocator, git_status);
             return .empty;
         }
         var backing_paths = std.ArrayList([]const u8).empty;
@@ -243,9 +244,9 @@ const PathsView = struct {
                 },
                 .file_end => {
                     line_end_index = index;
-                }
+                },
             }
-            try callback(context, text[line_start_index .. line_end_index]);
+            try callback(context, text[line_start_index..line_end_index]);
         }
     }
 };
@@ -270,7 +271,7 @@ pub const Formatter = struct {
             .argv = arguments,
             .cwd = cwd,
         });
-        deinitResult(allocator, result);
+        allocators.deinit(allocator, result);
     }
 };
 
@@ -297,12 +298,4 @@ pub fn run(
         defer paths_view.deinit();
         try formatter.format(allocator, io, cwd, paths_view.paths());
     }
-}
-
-fn deinitResult(
-    self: std.mem.Allocator,
-    result: std.process.RunResult,
-) void {
-    self.free(result.stdout);
-    self.free(result.stderr);
 }
