@@ -7,6 +7,7 @@ const parameters = clap.parseParamsComptime(
     \\-h, --help    Display information on how to use this program.
     \\-p, --print   Print the paths of files that have been formatted after formatting them.
     \\-s, --staged  Only formats files that will be included in the next Git commit.
+    \\<PATH>
 );
 const formatters = [_]autofmt.Formatter{
     .{
@@ -22,11 +23,12 @@ pub fn main(init: std.process.Init) !void {
     const project_root = std.process.Child.Cwd{
         .path = std.fs.path.dirname(build.root_path) orelse build.root_path,
     };
+    const parser = comptime .{ .PATH = clap.parsers.string };
     var diagnostic = clap.Diagnostic{};
     const input = clap.parse(
         clap.Help,
         &parameters,
-        clap.parsers.default,
+        parser,
         init.minimal.args,
         .{
             .allocator = allocator,
@@ -46,12 +48,16 @@ pub fn main(init: std.process.Init) !void {
         null
     else
         std.Io.File.stdout().writer(io, &stdout_buffer);
+    const paths: []const []const u8 = @ptrCast(&input.positionals);
+    const path_filter: autofmt.PathFilter =
+        if (paths.len == 0) .all else .{ .specific = paths };
     try autofmt.run(
         allocator,
         io,
         project_root,
         &stdout_writer,
         file_inclusion,
+        path_filter,
         &formatters,
     );
 }

@@ -5,12 +5,13 @@ pub const FileInclusion = enum {
     all,
     staged,
 
-    pub fn pathsView(
+    fn pathsView(
         self: FileInclusion,
         allocator: std.mem.Allocator,
         io: std.Io,
         cwd: std.process.Child.Cwd,
         output_writer: ?*std.Io.Writer,
+        filter: PathFilter,
         formatter: Formatter,
     ) !PathsView {
         return switch (self) {
@@ -19,6 +20,7 @@ pub const FileInclusion = enum {
                 io,
                 cwd,
                 output_writer,
+                filter,
                 formatter.extensions,
             ),
             .staged => .staged(
@@ -26,11 +28,17 @@ pub const FileInclusion = enum {
                 io,
                 cwd,
                 output_writer,
+                filter,
                 formatter.extensions,
             ),
         };
     }
 };
+pub const PathFilter = union(enum) {
+    all,
+    specific: []const []const u8,
+};
+
 const PathsView = struct {
     allocator: ?std.mem.Allocator,
     result: ?std.process.RunResult,
@@ -52,7 +60,8 @@ const PathsView = struct {
 
     fn deinit(self: *@This()) void {
         if (self.allocator) |allocator| {
-            run_results.deinit(self.result.?, allocator);
+            if (self.result) |result|
+                run_results.deinit(result, allocator);
             self.backing_paths.deinit(allocator);
         }
     }
@@ -66,70 +75,94 @@ const PathsView = struct {
         io: std.Io,
         cwd: std.process.Child.Cwd,
         output_writer: ?*std.Io.Writer,
+        filter: PathFilter,
         extensions: []const []const u8,
     ) !PathsView {
-        var find_arguments = try std.ArrayList([]const u8).initCapacity(
-            allocator,
-            extensions.len * 3 + find_argv_prefix.len,
-        );
-        defer find_arguments.deinit(allocator);
-        try find_arguments.appendSlice(allocator, find_argv_prefix);
-        for (extensions) |extension| {
-            const name = try std.mem.concat(allocator, u8, &.{
-                "*",
-                extension,
-            });
-            if (find_arguments.items.len > 3)
-                try find_arguments.append(allocator, "-o");
-            try find_arguments.append(allocator, "-name");
-            try find_arguments.append(allocator, name);
-        }
-        defer {
-            for (find_arguments.items) |argument|
-                // this is not ideal: files are not exempt from their names
-                // starting with an asterisk; if that happens, it'll be freed,
-                // and 'find' will end up receiving garbage.
-                //
-                // for now, as autofmt is built into the Key6 project, this is
-                // fine.
-                if (argument[0] == '*')
-                    allocator.free(argument);
-        }
-        const find = try std.process.run(allocator, io, .{
-            .argv = find_arguments.items,
-            .cwd = cwd,
-        });
-        var backing_paths = std.ArrayList([]const u8).empty;
-
-        const LineReadingContext = struct {
-            allocator: std.mem.Allocator,
-            output_writer: ?*std.Io.Writer,
-            backing_paths: *std.ArrayList([]const u8),
-
-            fn callback(_self: *@This(), path: []const u8) !void {
-                try _self.backing_paths.append(_self.allocator, path);
-                if (_self.output_writer) |writer| {
-                    try writer.print("{s}\n", .{path});
-                    try writer.flush();
+        return switch (filter) {
+            .all => _: {
+                var find_arguments = try std.ArrayList([]const u8).initCapacity(
+                    allocator,
+                    extensions.len * 3 + find_argv_prefix.len,
+                );
+                defer find_arguments.deinit(allocator);
+                try find_arguments.appendSlice(allocator, find_argv_prefix);
+                for (extensions) |extension| {
+                    const name = try std.mem.concat(allocator, u8, &.{
+                        "*",
+                        extension,
+                    });
+                    if (find_arguments.items.len > 3)
+                        try find_arguments.append(allocator, "-o");
+                    try find_arguments.append(allocator, "-name");
+                    try find_arguments.append(allocator, name);
                 }
-            }
-        };
+                defer {
+                    for (find_arguments.items) |argument|
+                        // this is not ideal: files are not exempt from their
+                        // names starting with an asterisk; if that happens,
+                        // it'll be freed, and 'find' will end up receiving
+                        // garbage.
+                        //
+                        // for now, as autofmt is built into the Key6 project,
+                        // this is fine.
+                        if (argument[0] == '*')
+                            allocator.free(argument);
+                }
+                const find = try std.process.run(allocator, io, .{
+                    .argv = find_arguments.items,
+                    .cwd = cwd,
+                });
+                const LineReadingContext = struct {
+                    allocator: std.mem.Allocator,
+                    output_writer: ?*std.Io.Writer,
+                    backing_paths: *std.ArrayList([]const u8),
 
-        var line_reading_context = LineReadingContext{
-            .allocator = allocator,
-            .output_writer = output_writer,
-            .backing_paths = &backing_paths,
-        };
-        try readLines(
-            LineReadingContext,
-            &line_reading_context,
-            find.stdout,
-            LineReadingContext.callback,
-        );
-        return .{
-            .allocator = allocator,
-            .result = find,
-            .backing_paths = backing_paths,
+                    fn callback(_self: *@This(), path: []const u8) !void {
+                        try _self.backing_paths.append(_self.allocator, path);
+                        if (_self.output_writer) |writer| {
+                            try writer.print("{s}\n", .{path});
+                            try writer.flush();
+                        }
+                    }
+                };
+
+                var backing_paths = std.ArrayList([]const u8).empty;
+                var line_reading_context = LineReadingContext{
+                    .allocator = allocator,
+                    .output_writer = output_writer,
+                    .backing_paths = &backing_paths,
+                };
+                try readLines(
+                    LineReadingContext,
+                    &line_reading_context,
+                    find.stdout,
+                    LineReadingContext.callback,
+                );
+                break :_ .{
+                    .allocator = allocator,
+                    .result = find,
+                    .backing_paths = backing_paths,
+                };
+            },
+            .specific => |filter_paths| _: {
+                var backing_paths =
+                    try std.ArrayList([]const u8).initCapacity(
+                        allocator,
+                        filter_paths.len,
+                    );
+                try backing_paths.appendSlice(allocator, filter_paths);
+                if (output_writer) |writer| {
+                    for (filter_paths) |path| {
+                        try writer.print("{s}\n", .{path});
+                        try writer.flush();
+                    }
+                }
+                break :_ .{
+                    .allocator = allocator,
+                    .result = null,
+                    .backing_paths = backing_paths,
+                };
+            },
         };
     }
 
@@ -138,6 +171,7 @@ const PathsView = struct {
         io: std.Io,
         cwd: std.process.Child.Cwd,
         output_writer: ?*std.Io.Writer,
+        filter: PathFilter,
         extensions: []const []const u8,
     ) !PathsView {
         const git_status = try std.process.run(allocator, io, .{
@@ -153,6 +187,7 @@ const PathsView = struct {
         const LineReadingContext = struct {
             allocator: std.mem.Allocator,
             output_writer: ?*std.Io.Writer,
+            filter: PathFilter,
             extensions: []const []const u8,
             backing_paths: *std.ArrayList([]const u8),
 
@@ -176,6 +211,16 @@ const PathsView = struct {
                     break;
                 }
                 const path = line[path_index..];
+                switch (self.filter) {
+                    .all => {},
+                    .specific => |filter_paths| {
+                        for (filter_paths) |filter_path| {
+                            if (std.mem.eql(u8, path, filter_path))
+                                break;
+                            return;
+                        }
+                    },
+                }
 
                 // this O(n) loop is really, really unnecessary… instead, we
                 // could use a std.StringHashMap rather than a std.ArrayList for
@@ -206,6 +251,7 @@ const PathsView = struct {
         var line_reading_context = LineReadingContext{
             .allocator = allocator,
             .output_writer = output_writer,
+            .filter = filter,
             .extensions = extensions,
             .backing_paths = &backing_paths,
         };
@@ -287,6 +333,7 @@ pub fn run(
     cwd: std.process.Child.Cwd,
     output_file_writer: *?std.Io.File.Writer,
     file_inclusion: FileInclusion,
+    path_filter: PathFilter,
     formatters: []const Formatter,
 ) !void {
     const output_writer = if (output_file_writer.*) |*file_writer|
@@ -299,6 +346,7 @@ pub fn run(
             io,
             cwd,
             output_writer,
+            path_filter,
             formatter,
         );
         defer paths_view.deinit();
