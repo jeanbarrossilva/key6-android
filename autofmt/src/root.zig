@@ -35,10 +35,11 @@ const PathsView = struct {
     result: ?std.process.RunResult,
     backing_paths: std.ArrayList([]const u8),
 
-    const LineScan = union(enum) {
-        start,
-        intermediate,
-        end,
+    const LineReadingState = union(enum) {
+        line_start,
+        line_bulk,
+        line_end,
+        file_end,
     };
 
     const empty = PathsView{
@@ -170,8 +171,8 @@ const PathsView = struct {
                 const path = line[path_index..];
 
                 // this O(n) loop is really, really unnecessary… instead, we
-                // could use a std.StringHashMap rather than an std.ArrayList
-                // for the backing path storage.
+                // could use a std.StringHashMap rather than a std.ArrayList for
+                // the backing path storage.
                 for (self.backing_paths.items) |previous_path|
                     if (path.len == previous_path.len and
                         std.mem.eql(u8, path, previous_path))
@@ -220,25 +221,31 @@ const PathsView = struct {
         text: []const u8,
         callback: *const fn (*Context, []const u8) anyerror!void,
     ) !void {
-        var line_scan = LineScan.start;
+        var state = LineReadingState.line_start;
         var line_start_index: usize = 0;
         for (0..text.len) |index| {
-            switch (line_scan) {
-                .start => {
-                    line_scan = .intermediate;
+            var line_end_index = index -| 1;
+            switch (state) {
+                .line_start => {
+                    state = .line_bulk;
                     line_start_index = index;
                     continue;
                 },
-                .intermediate => {
+                .line_bulk => {
                     if (text[index] == '\n')
-                        line_scan = .end;
+                        state = .line_end;
+                    if (index == text.len - 2)
+                        state = .file_end;
                     continue;
                 },
-                .end => {
-                    line_scan = .start;
+                .line_end => {
+                    state = .line_start;
                 },
+                .file_end => {
+                    line_end_index = index;
+                }
             }
-            try callback(context, text[line_start_index .. index - 1]);
+            try callback(context, text[line_start_index .. line_end_index]);
         }
     }
 };
@@ -254,9 +261,9 @@ pub const Formatter = struct {
         cwd: std.process.Child.Cwd,
         paths: []const []const u8,
     ) !void {
-        _ = paths;
         const arguments = try std.mem.concat(allocator, []const u8, &.{
             self.arguments,
+            paths,
         });
         defer allocator.free(arguments);
         const result = try std.process.run(allocator, io, .{
