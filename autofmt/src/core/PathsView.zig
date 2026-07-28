@@ -211,8 +211,8 @@ pub fn staged(
                             else
                                 i;
                         } else _: {
-                          break :_ 1;
-                      };
+                            break :_ 1;
+                        };
                     break :single i + offset;
                 } else _: {
                     break :_ 0;

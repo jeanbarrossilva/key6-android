@@ -40,6 +40,13 @@ pub fn validate(self: Self) Error!void {
         return Error.Unidentified;
     if (self.extensions.len == 0)
         return Error.MissingExtensions;
+    for (self.extensions) |extension| {
+        if (extension.len == 0 or extension[0] != '.' or extension.len == 1)
+            return Error.MalformedExtension;
+        for (extension) |character|
+            if (!std.ascii.isAlphanumeric(character))
+                return Error.MalformedExtension;
+    }
     if (self.arguments.len == 0)
         return Error.MissingArguments;
 }
@@ -63,7 +70,7 @@ pub fn format(
     run_results.deinit(result, allocator);
 }
 
-test "validate(): errors when unidentified" {
+test "validate(): errors if unidentified" {
     try std.testing.expectError(
         Self.Error.Unidentified,
         Self.validate(.{
@@ -83,6 +90,19 @@ test "validate(): errors if extensions are missing" {
             .arguments = Self.zig.arguments,
         }),
     );
+}
+
+test "validate(): errors if extension is malformed" {
+    const extensions = &.{ "", "z", "zig", "zig zon" };
+    for (extensions) |extension|
+        try std.testing.expectError(
+            Self.Error.MalformedExtensions,
+            Self.validate(.{
+                .identifier = Self.zig.identifier,
+                .extensions = &.{extension},
+                .arguments = Self.zig.arguments,
+            }),
+        );
 }
 
 test "validate(): errors if arguments are missing" {
