@@ -43,27 +43,14 @@ pub fn main(init: std.process.Init) !void {
         var buffer: [4096]u8 = undefined;
         break :_ std.Io.File.stdout().writer(io, &buffer);
     };
-    const sliced_positionals =
-        @as([]const []const u8, @ptrCast(&input.positionals));
-    var paths = try std.ArrayList([]const u8).initCapacity(
-        allocator,
-        sliced_positionals.len,
-    );
-    defer paths.deinit(allocator);
-    var path_index = paths.items.len -| 1;
-    while (paths.items.len > 0 and path_index >= 0) : (path_index -= 1) {
-        const path = paths.items[path_index];
-        for (path, 0..) |character, character_index| {
-            if (character_index == path.len - 1) {
-                _ = paths.swapRemove(path_index);
-                break;
-            }
-            if (!std.ascii.isWhitespace(character))
-                break;
-        }
-    }
+    const paths = @as([]const []const u8, @ptrCast(&input.positionals));
+    var non_blank_paths = try filterNotBlank(allocator, paths);
+    defer non_blank_paths.deinit(allocator);
     const path_filter: autofmt.PathFilter =
-        if (paths.items.len == 0) .all else .{ .specific = paths.items };
+        if (non_blank_paths.items.len == 0)
+            .all
+        else
+            .{ .specific = non_blank_paths.items };
     try autofmt.run(
         allocator,
         io,
@@ -73,4 +60,30 @@ pub fn main(init: std.process.Init) !void {
         path_filter,
         &formatters,
     );
+}
+
+fn filterNotBlank(
+    allocator: std.mem.Allocator,
+    strings: []const []const u8,
+) !std.ArrayList([]const u8) {
+    if (strings.len == 0)
+        return .empty;
+    var non_blank =
+        try std.ArrayList([]const u8).initCapacity(allocator, strings.len);
+    for (strings) |string| {
+        var is_blank = string.len == 0;
+        for (string, 0..) |character, character_index| {
+            const is_last_character = character_index == string.len - 1;
+            if (is_last_character) {
+                is_blank = true;
+                break;
+            }
+            if (!std.ascii.isWhitespace(character))
+                break;
+        }
+        if (is_blank)
+            break;
+        try non_blank.append(allocator, string);
+    }
+    return non_blank;
 }
