@@ -21,8 +21,8 @@ arguments: []const []const u8,
 
 pub const zig = Self{
     .identifier = "zig",
-    .extensions = &.{".zig"},
-    .arguments = &.{ "zig", "fmt" },
+    .extensions = &.{".zig", ".zig.zon"},
+    .arguments = &.{"zig", "fmt"},
 };
 
 const Error = error{
@@ -93,7 +93,7 @@ test "validate(): errors if extensions are missing" {
 }
 
 test "validate(): errors if extension is malformed" {
-    const extensions = &.{ "", "z", "zig", "zig zon" };
+    const extensions = &.{"", "z", "zig", "zig zon"};
     for (extensions) |extension|
         try std.testing.expectError(
             Self.Error.MalformedExtensions,
