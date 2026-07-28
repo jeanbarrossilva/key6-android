@@ -24,7 +24,8 @@ import java.lang.annotation.Target;
 /**
  * Retries a unit-test according to the attributes set here
  *
- * The class containing the test(s) decorated with this annotation must have a public field of type {@link RetryRule}
+ * <p>The class containing the test(s) decorated with this annotation must have a public field of
+ * type {@link RetryRule}
  */
 @Retention(RetentionPolicy.RUNTIME)
 @Target({ElementType.METHOD, ElementType.TYPE})

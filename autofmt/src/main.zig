@@ -27,6 +27,11 @@ const parameters = clap.parseParamsComptime(
 );
 const formatters = [_]autofmt.Formatter{
     .{
+        .identifier = "java",
+        .extensions = &.{".java"},
+        .arguments = &.{"google-java-format", "--replace"}
+    },
+    .{
         .identifier = "kt",
         .extensions = &.{ ".kt", ".kts" },
         .arguments = &.{ "ktlint", "--format" },
