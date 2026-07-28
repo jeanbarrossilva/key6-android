@@ -31,6 +31,7 @@ const formatters = [_]autofmt.Formatter{
         .extensions = &.{ ".kt", ".kts" },
         .arguments = &.{ "ktlint", "--format" },
     },
+    .zig,
 };
 
 pub fn main(init: std.process.Init) !void {

@@ -41,9 +41,9 @@ pub fn validate(self: Self) Error!void {
     if (self.extensions.len == 0)
         return Error.MissingExtensions;
     for (self.extensions) |extension| {
-        if (extension.len == 0 or extension[0] != '.' or extension.len == 1)
+        if (extension.len <= 1 or extension[0] != '.')
             return Error.MalformedExtension;
-        for (extension) |character|
+        for (extension[1..]) |character|
             if (!std.ascii.isAlphanumeric(character))
                 return Error.MalformedExtension;
     }
