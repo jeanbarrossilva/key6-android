@@ -16,6 +16,6 @@
 // along with this program. If not, see https://www.gnu.org/licenses.
 
 pub const PathFilter = union(enum) {
-  all,
-  specific: []const []const u8,
+    all,
+    specific: []const []const u8,
 };

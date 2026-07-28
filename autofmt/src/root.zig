@@ -15,11 +15,6 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see https://www.gnu.org/licenses.
 
-pub const Formatter = @import("core/formatter.zig").Formatter;
-pub const PathFilter = @import("core/path_filter.zig").PathFilter;
-pub const PathsView = @import("core/paths_view.zig").PathsView;
-pub const std = @import("std");
-
 pub const FileInclusion = enum {
     all,
     staged,
@@ -53,6 +48,10 @@ pub const FileInclusion = enum {
         };
     }
 };
+pub const Formatter = @import("core/Formatter.zig");
+pub const PathFilter = @import("core/path_filter.zig").PathFilter;
+pub const PathsView = @import("core/PathsView.zig");
+pub const std = @import("std");
 
 pub fn run(
     allocator: std.mem.Allocator,
