@@ -210,7 +210,9 @@ pub fn staged(
                                 arrow_end_index
                             else
                                 i;
-                        } else 1;
+                        } else _: {
+                          break :_ 1;
+                      };
                     break :single i + offset;
                 } else _: {
                     break :_ 0;
