@@ -36,7 +36,7 @@ const empty = Self{
     .backing_paths = .empty,
 };
 const find_prefix_arguments = &.{ "find", "." };
-const find_argument_count_per_extension = 3;
+const find_argument_per_extension_count = 3;
 const git_status_arrow = "->";
 
 pub fn deinit(self: *Self) void {
@@ -64,7 +64,7 @@ pub fn all(
             var arguments = try std.ArrayList([]const u8).initCapacity(
                 allocator,
                 extensions.len *
-                    find_argument_count_per_extension +
+                    find_argument_per_extension_count +
                     find_prefix_arguments.len,
             );
             defer arguments.deinit(allocator);
@@ -75,7 +75,7 @@ pub fn all(
                     extension,
                 });
                 if (arguments.items.len >
-                    find_argument_count_per_extension)
+                    find_argument_per_extension_count)
                     try arguments.append(allocator, "-o");
                 try arguments.append(allocator, "-name");
                 try arguments.append(allocator, name);
