@@ -1,41 +1,41 @@
 #!/usr/bin/python3
 
-from pathlib import Path
-from sys import argv, stderr
+import os
+import pathlib
+import stat
 import subprocess
+import sys
 
-if __name__ == '__main__':
-  autofmt_dir = Path(__file__).parent.resolve() / "autofmt"
-  zig_fetch = subprocess.run(
-    [
-      "zig",
-      "fetch",
-      "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.12.0.tar.gz"
-    ],
-    capture_output=True,
-    cwd=autofmt_dir,
-    text=True
-  )
-  if (zig_fetch.returncode != 0):
-    print(zig_fetch.stderr, file=stderr)
-    zig_fetch.check_returncode()
-  zig_build = subprocess.run(
-    ["zig", "build"],
-    capture_output=True,
-    cwd=autofmt_dir,
-    text=True
-  )
-  if (zig_build.returncode != 0):
-    print(zig_build.stderr, file=stderr)
-    zig_build.check_returncode()
-  autofmt = subprocess.run(
-    ["./autofmt", *argv[1:]],
-    capture_output=True,
-    cwd=autofmt_dir / "zig-out" / "bin",
-    text=True
-  )
-  if (autofmt.returncode == 0):
-    print(autofmt.stdout)
-  else:
-    print(autofmt.stderr, file=stderr)
-    autofmt.check_returncode()
+key6_root = pathlib.Path(__file__).parent.resolve()
+autofmt_root = key6_root / "autofmt"
+autofmt_binary = autofmt_root / "zig-out" / "bin" / "autofmt"
+autofmt_binary_as_posix = autofmt_binary.as_posix()
+
+def runSubprocess(
+  *,
+  cwd: pathlib.Path,
+  forwards_stdout: bool,
+  arguments: list[str]
+):
+    process = subprocess.run(arguments, capture_output=True, cwd=cwd, text=True)
+    if (forwards_stdout):
+        print(process.stdout[:-1])
+    if (process.returncode != 0):
+        if (process.stderr):
+            print(process.stderr, file=sys.stderr)
+        process.check_returncode()
+
+runSubprocess(cwd=autofmt_root, forwards_stdout=False, arguments=[
+  "zig",
+  "fetch",
+  "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.12.0.tar.gz"
+])
+runSubprocess(cwd=autofmt_root, forwards_stdout=False, arguments=["zig", "build"])
+os.chmod(
+  autofmt_binary_as_posix,
+  os.stat(autofmt_binary_as_posix).st_mode | stat.S_IXUSR
+)
+runSubprocess(cwd=key6_root, forwards_stdout=True, arguments=[
+    autofmt_binary.relative_to(key6_root).as_posix(),
+    *sys.argv[1:]
+])

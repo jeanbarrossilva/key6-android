@@ -18,9 +18,6 @@ pub fn build(b: *std.Build) void {
             },
         }),
     });
-    const options = b.addOptions();
-    options.addOption([]const u8, "root_path", b.path("").getPath(b));
-    exe.root_module.addOptions("build", options);
     const clap = b.dependency("clap", .{});
     exe.root_module.addImport("clap", clap.module("clap"));
     b.installArtifact(exe);
