@@ -21,8 +21,8 @@ arguments: []const []const u8,
 
 pub const zig = Self{
     .identifier = "zig",
-    .extensions = &.{".zig", ".zig.zon"},
-    .arguments = &.{"zig", "fmt"},
+    .extensions = &.{ ".zig", ".zig.zon" },
+    .arguments = &.{ "zig", "fmt" },
 };
 
 const Error = error{
@@ -31,6 +31,7 @@ const Error = error{
     MissingExtensions,
     Unidentified,
 };
+const extension_prefix = '.';
 const Self = @This();
 const run_results = @import("run_results.zig");
 const std = @import("std");
@@ -41,10 +42,13 @@ pub fn validate(self: Self) Error!void {
     if (self.extensions.len == 0)
         return Error.MissingExtensions;
     for (self.extensions) |extension| {
-        if (extension.len <= 1 or extension[0] != '.')
+        if (extension.len <= 1 or extension[0] != extension_prefix)
             return Error.MalformedExtension;
-        for (extension[1..]) |character|
-            if (!std.ascii.isAlphanumeric(character))
+        for (extension[1..], 0..) |character, index|
+            if (character == extension_prefix) {
+                if (extension[index - 1] == character)
+                    return Error.MalformedExtension;
+            } else if (!std.ascii.isAlphanumeric(character))
                 return Error.MalformedExtension;
     }
     if (self.arguments.len == 0)
@@ -93,7 +97,7 @@ test "validate(): errors if extensions are missing" {
 }
 
 test "validate(): errors if extension is malformed" {
-    const extensions = &.{"", "z", "zig", "zig zon"};
+    const extensions = &.{ "", "z", "zig", ".zig..zon", "zig zon" };
     for (extensions) |extension|
         try std.testing.expectError(
             Self.Error.MalformedExtensions,
