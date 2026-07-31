@@ -1,0 +1,17 @@
+[
+  {
+    "identifier": "java",
+    "arguments": ["google-java-format", "--replace"],
+    "extensions": [".java"]
+  },
+  {
+    "identifier": "kt",
+    "arguments": ["ktlint", "--format"],
+    "extensions": [".kt", ".kts"]
+  },
+  {
+    "identifier": "zig",
+    "arguments": ["zig", "fmt"],
+    "extensions": [".zig", ".zon"]
+  }
+]

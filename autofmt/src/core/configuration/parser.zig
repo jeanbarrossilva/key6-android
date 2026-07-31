@@ -25,11 +25,7 @@ const Result = struct {
 };
 const std = @import("std");
 
-pub fn parseFile(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    file: std.Io.File
-) !Result {
+pub fn parseFile(allocator: std.mem.Allocator, io: std.Io, file: std.Io.File) !Result {
     var source = std.ArrayList(u8).empty;
     var file_reader = file.reader(io, &.{});
     const reader = &file_reader.interface;
@@ -47,7 +43,7 @@ fn parseSource(
         .json = try std.json.parseFromSlice(
             []Formatter,
             allocator,
-            source,
+            source.items,
             .{},
         ),
     };
