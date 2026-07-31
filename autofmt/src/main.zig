@@ -25,26 +25,14 @@ const parameters = clap.parseParamsComptime(
     \\-s, --staged  Only formats files that will be included in the next Git commit.
     \\<PATH>
 );
-const formatters = [_]autofmt.Formatter{
-    .{
-        .identifier = "java",
-        .extensions = &.{".java"},
-        .arguments = &.{"google-java-format", "--replace"}
-    },
-    .{
-        .identifier = "kt",
-        .extensions = &.{ ".kt", ".kts" },
-        .arguments = &.{ "ktlint", "--format" },
-    },
-    .zig,
-};
 
 pub fn main(init: std.process.Init) !void {
     const allocator = init.gpa;
     const io = init.io;
-    const cwd_path = try std.Io.Dir.cwd().realPathFileAlloc(io, ".", allocator);
+    const cwd_directory = std.Io.Dir.cwd();
+    const cwd_path = try cwd_directory.realPathFileAlloc(io, ".", allocator);
     defer allocator.free(cwd_path);
-    const cwd = std.process.Child.Cwd{ .path = cwd_path };
+    const subprocess_cwd = std.process.Child.Cwd{ .path = cwd_path };
     const parser = comptime .{ .PATH = clap.parsers.string };
     var diagnostic = clap.Diagnostic{};
     const input =
@@ -74,14 +62,26 @@ pub fn main(init: std.process.Init) !void {
             .all
         else
             .{ .specific = non_blank_paths.items };
+    const configuration_file = try cwd_directory.openFile(io, ".autofmt.json", .{
+        .allow_directory = false,
+        .lock = .shared,
+    });
+    defer configuration_file.close(io);
+    var configuration_parsing_result =
+        try autofmt.configuration.parser.parseFile(
+            allocator,
+            io,
+            configuration_file,
+        );
+    defer configuration_parsing_result.deinit();
     try autofmt.run(
         allocator,
         io,
-        cwd,
+        subprocess_cwd,
         &stdout_writer,
         file_inclusion,
         path_filter,
-        &formatters,
+        configuration_parsing_result.formatters(),
     );
 }
 

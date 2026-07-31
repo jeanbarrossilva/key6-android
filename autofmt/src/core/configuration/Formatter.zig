@@ -19,12 +19,6 @@ identifier: []const u8,
 extensions: []const []const u8,
 arguments: []const []const u8,
 
-pub const zig = Self{
-    .identifier = "zig",
-    .extensions = &.{ ".zig", ".zig.zon" },
-    .arguments = &.{ "zig", "fmt" },
-};
-
 const Error = error{
     MalformedExtension,
     MissingArguments,
@@ -73,6 +67,12 @@ pub fn format(
     });
     run_results.deinit(result, allocator);
 }
+
+const zig = Self{
+    .identifier = "zig",
+    .extensions = &.{ ".zig", ".zig.zon" },
+    .arguments = &.{ "zig", "fmt" },
+};
 
 test "validate(): errors if unidentified" {
     try std.testing.expectError(

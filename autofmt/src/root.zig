@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see https://www.gnu.org/licenses.
 
+pub const configuration = PathsView.configuration;
 pub const FileInclusion = enum {
     all,
     staged,
@@ -26,7 +27,7 @@ pub const FileInclusion = enum {
         cwd: std.process.Child.Cwd,
         output_writer: ?*std.Io.Writer,
         filter: PathFilter,
-        formatter: Formatter,
+        formatter: configuration.Formatter,
     ) !PathsView {
         return switch (self) {
             .all => .all(
@@ -48,7 +49,6 @@ pub const FileInclusion = enum {
         };
     }
 };
-pub const Formatter = @import("core/Formatter.zig");
 pub const PathFilter = @import("core/path_filter.zig").PathFilter;
 pub const PathsView = @import("core/PathsView.zig");
 pub const std = @import("std");
@@ -60,7 +60,7 @@ pub fn run(
     output_file_writer: *?std.Io.File.Writer,
     file_inclusion: FileInclusion,
     path_filter: PathFilter,
-    formatters: []const Formatter,
+    formatters: []const configuration.Formatter,
 ) !void {
     const output_writer = if (output_file_writer.*) |*file_writer|
         &file_writer.interface

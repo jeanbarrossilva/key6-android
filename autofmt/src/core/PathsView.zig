@@ -19,6 +19,8 @@ allocator: ?std.mem.Allocator,
 result: ?std.process.RunResult,
 backing_paths: std.ArrayList([]const u8),
 
+pub const configuration = @import("configuration/root.zig");
+
 const LineReadingState = union(enum) {
     line_start,
     line_bulk,
@@ -26,7 +28,6 @@ const LineReadingState = union(enum) {
     file_end,
 };
 const PathFilter = @import("path_filter.zig").PathFilter;
-const run_results = @import("run_results.zig");
 const Self = @This();
 const std = @import("std");
 
@@ -42,7 +43,7 @@ const git_status_arrow = "->";
 pub fn deinit(self: *Self) void {
     if (self.allocator) |allocator| {
         if (self.result) |result|
-            run_results.deinit(result, allocator);
+            configuration.run_results.deinit(result, allocator);
         self.backing_paths.deinit(allocator);
     }
 }
@@ -89,14 +90,14 @@ pub fn all(
                 .argv = arguments.items,
                 .cwd = cwd,
             });
-            errdefer run_results.deinit(find, allocator);
-            try run_results.validate(find, allocator, io);
-            const LineReadingContext = struct {
+            errdefer configuration.run_results.deinit(find, allocator);
+            try configuration.run_results.validate(find, allocator, io);
+            const LineReader = struct {
                 allocator: std.mem.Allocator,
                 output_writer: ?*std.Io.Writer,
                 backing_paths: *std.ArrayList([]const u8),
 
-                fn callback(_self: *@This(), path: []const u8) !void {
+                fn read(_self: *@This(), path: []const u8) !void {
                     try _self.backing_paths.append(_self.allocator, path);
                     if (_self.output_writer) |writer| {
                         try writer.print("{s}\n", .{path});
@@ -105,16 +106,16 @@ pub fn all(
                 }
             };
             var backing_paths = std.ArrayList([]const u8).empty;
-            var line_reading_context = LineReadingContext{
+            var line_reader = LineReader{
                 .allocator = allocator,
                 .output_writer = output_writer,
                 .backing_paths = &backing_paths,
             };
             try readLines(
-                LineReadingContext,
-                &line_reading_context,
+                LineReader,
+                &line_reader,
                 find.stdout,
-                LineReadingContext.callback,
+                LineReader.read,
             );
             break :_ .{
                 .allocator = allocator,
@@ -156,22 +157,22 @@ pub fn staged(
         .argv = &.{ "git", "status", "--porcelain" },
         .cwd = cwd,
     });
-    errdefer run_results.deinit(git_status, allocator);
-    try run_results.validate(git_status, allocator, io);
+    errdefer configuration.run_results.deinit(git_status, allocator);
+    try configuration.run_results.validate(git_status, allocator, io);
     if (git_status.stdout.len == 0) {
-        run_results.deinit(git_status, allocator);
+        configuration.run_results.deinit(git_status, allocator);
         return .empty;
     }
     var backing_paths = std.ArrayList([]const u8).empty;
 
-    const LineReadingContext = struct {
+    const LineReader = struct {
         allocator: std.mem.Allocator,
         output_writer: ?*std.Io.Writer,
         filter: PathFilter,
         extensions: []const []const u8,
         backing_paths: *std.ArrayList([]const u8),
 
-        fn callback(self: *@This(), line: []const u8) !void {
+        fn read(self: *@This(), line: []const u8) !void {
             // obviously, we'll only format files that *will* be
             // commited. them having been deleted (i.e., their name
             // being prefixed with a "D") means they'll just be ignored.
@@ -248,7 +249,7 @@ pub fn staged(
         }
     };
 
-    var line_reading_context = LineReadingContext{
+    var line_reader = LineReader{
         .allocator = allocator,
         .output_writer = output_writer,
         .filter = filter,
@@ -256,10 +257,10 @@ pub fn staged(
         .backing_paths = &backing_paths,
     };
     try readLines(
-        LineReadingContext,
-        &line_reading_context,
+        LineReader,
+        &line_reader,
         git_status.stdout,
-        LineReadingContext.callback,
+        LineReader.read,
     );
     return .{
         .allocator = allocator,
@@ -269,10 +270,10 @@ pub fn staged(
 }
 
 fn readLines(
-    comptime Context: anytype,
-    context: *Context,
+    comptime Reader: anytype,
+    reader: *Reader,
     text: []const u8,
-    callback: *const fn (*Context, []const u8) anyerror!void,
+    read: *const fn (*Reader, []const u8) anyerror!void,
 ) !void {
     var state = LineReadingState.line_start;
     var line_start_index: usize = 0;
@@ -298,6 +299,6 @@ fn readLines(
                 line_end_index = index;
             },
         }
-        try callback(context, text[line_start_index..line_end_index]);
+        try read(reader, text[line_start_index..line_end_index]);
     }
 }
