@@ -301,27 +301,6 @@ pub fn staged(
     };
 }
 
-fn canonicalize(
-    allocator: std.mem.Allocator,
-    io: std.Io,
-    cwd: std.process.Child.Cwd,
-    path: []const []const u8,
-) ![]const []const u8 {
-    var should_close_cwd_directory = false;
-    const cwd_directory = switch (cwd) {
-        .inherit => std.Io.Dir.cwd(),
-        .dir => |directory| directory,
-        .path => |cwd_path| _: {
-            const cwd_directory = try std.Io.Dir.cwd().openDir(cwd_path, .{});
-            should_close_cwd_directory = true;
-            break :_ cwd_directory;
-        },
-    };
-    defer if (should_close_cwd_directory)
-        cwd_directory.close();
-    return try cwd_directory.realPathFileAlloc(io, path, allocator);
-}
-
 fn readLines(
     comptime Reader: anytype,
     reader: *Reader,

@@ -26,7 +26,10 @@ cat <<EOF >"$hook_path"
 autofmt() {
   local formatted_files
   formatted_files="\$("$autofmt_helper_path" --print --staged)"
-  git add \$("\$formatted_files" | xargs)
+  if [ -z "$formatted_files" ]; then
+    return
+  fi
+  git add "\$formatted_files"
 }
 
 set -eo pipefail
