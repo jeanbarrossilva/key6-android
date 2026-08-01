@@ -1,12 +1,12 @@
 const Formatter = @import("Formatter.zig");
 const Result = struct {
     allocator: ?std.mem.Allocator,
-    backing_source: std.ArrayList(u8),
+    source: std.ArrayList(u8),
     json: std.json.Parsed([]Formatter),
 
     const empty = Result{
         .allocator = null,
-        .backing_source = .empty,
+        .source = .empty,
         .json = .{
             .allocator = undefined,
             .value = &.{},
@@ -19,7 +19,7 @@ const Result = struct {
 
     pub fn deinit(self: *Result) void {
         const allocator = self.allocator orelse return;
-        self.backing_source.deinit(allocator);
+        self.source.deinit(allocator);
         self.json.deinit();
     }
 };
@@ -39,7 +39,7 @@ fn parseSource(
 ) !Result {
     return .{
         .allocator = allocator,
-        .backing_source = source,
+        .source = source,
         .json = try std.json.parseFromSlice(
             []Formatter,
             allocator,
@@ -50,24 +50,52 @@ fn parseSource(
 }
 
 test parseSource {
-    var result = try parseSource(std.testing.allocator,
-        \\{
-        \\  {
-        \\    "identifier": "zig",
-        \\    "arguments": ["zig", "fmt", "."],
-        \\    "extensions": [".zig", ".zon"]
-        \\ }
-        \\}
-    );
-    defer result.deinit();
-    std.testing.expectEquals(
-        &.{
-            .{
-                .identifier = "zig",
-                .arguments = &.{ "zig", "fmt", "." },
-                .extensions = &.{ ".zig", ".zon" },
+    omitting_exclusions: {
+        var result = try parseSource(std.testing.allocator,
+            \\{
+            \\  {
+            \\    "identifier": "zig",
+            \\    "arguments": ["zig", "fmt", "."],
+            \\    "extensions": [".zig", ".zon"]
+            \\ }
+            \\}
+        );
+        defer result.deinit();
+        std.testing.expectEquals(
+            &.{
+                .{
+                    .identifier = "zig",
+                    .arguments = &.{ "zig", "fmt", "." },
+                    .extensions = &.{ ".zig", ".zon" },
+                },
             },
-        },
-        result.formatters(),
-    );
+            result.formatters(),
+        );
+        break :omitting_exclusions;
+    }
+    specifying_exclusions: {
+        var result = try parseSource(std.testing.allocator,
+            \\{
+            \\  {
+            \\    "identifier": "zig",
+            \\    "arguments": ["zig", "fmt", "."],
+            \\    "extensions": [".zig", ".zon"],
+            \\    "exclusions": ["src/main.zig"]
+            \\ }
+            \\}
+        );
+        defer result.deinit();
+        std.testing.expectEquals(
+            &.{
+                .{
+                    .identifier = "zig",
+                    .arguments = &.{ "zig", "fmt", "." },
+                    .extensions = &.{ ".zig", ".zon" },
+                    .exclusions = &.{"src/main.zig"},
+                },
+            },
+            result.formatters(),
+        );
+        break :specifying_exclusions;
+    }
 }

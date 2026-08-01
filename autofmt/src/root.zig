@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see https://www.gnu.org/licenses.
 
-pub const configuration = PathsView.configuration;
+pub const configuration = @import("core/configuration/root.zig");
 pub const FileInclusion = enum {
     all,
     staged,
@@ -37,6 +37,7 @@ pub const FileInclusion = enum {
                 output_writer,
                 filter,
                 formatter.extensions,
+                formatter.exclusions,
             ),
             .staged => .staged(
                 allocator,
@@ -45,6 +46,7 @@ pub const FileInclusion = enum {
                 output_writer,
                 filter,
                 formatter.extensions,
+                formatter.exclusions,
             ),
         };
     }

@@ -2,7 +2,11 @@
   {
     "identifier": "java",
     "arguments": ["google-java-format", "--replace"],
-    "extensions": [".java"]
+    "extensions": [".java"],
+    "exclusions": [
+      "/keychain/src/main/java/de/xformerfhs/securesecretkeyspec/*",
+      "/keychain/src/test/java/com/kevinmost/junit_retry_rule/*"
+    ]
   },
   {
     "identifier": "kt",

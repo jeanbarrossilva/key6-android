@@ -94,18 +94,8 @@ fn filterNotBlank(
     var non_blank =
         try std.ArrayList([]const u8).initCapacity(allocator, strings.len);
     for (strings) |string| {
-        var is_blank = string.len == 0;
-        for (string, 0..) |character, character_index| {
-            const is_last_character = character_index == string.len - 1;
-            if (is_last_character) {
-                is_blank = true;
-                break;
-            }
-            if (!std.ascii.isWhitespace(character))
-                break;
-        }
-        if (is_blank)
-            break;
+        if (autofmt.configuration.strings.isBlank(string))
+            continue;
         try non_blank.append(allocator, string);
     }
     return non_blank;

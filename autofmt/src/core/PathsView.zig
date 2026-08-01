@@ -19,8 +19,7 @@ allocator: ?std.mem.Allocator,
 result: ?std.process.RunResult,
 backing_paths: std.ArrayList([]const u8),
 
-pub const configuration = @import("configuration/root.zig");
-
+const configuration = @import("configuration/root.zig");
 const LineReadingState = union(enum) {
     line_start,
     line_bulk,
@@ -36,8 +35,11 @@ const empty = Self{
     .result = null,
     .backing_paths = .empty,
 };
-const find_prefix_arguments = &.{ "find", "." };
+const find_prefix_arguments = &.{ "find", "-L", "." };
 const find_argument_per_extension_count = 3;
+const find_argument_per_exclusion_count = 2;
+const find_argument_exclusion_regex_prefix = ".";
+const find_argument_exclusion_regex_suffix = ".*";
 const git_status_arrow = "->";
 
 pub fn deinit(self: *Self) void {
@@ -59,14 +61,15 @@ pub fn all(
     output_writer: ?*std.Io.Writer,
     filter: PathFilter,
     extensions: []const []const u8,
+    exclusions: []const []const u8,
 ) !Self {
     return switch (filter) {
         .all => _: {
             var arguments = try std.ArrayList([]const u8).initCapacity(
                 allocator,
-                extensions.len *
-                    find_argument_per_extension_count +
-                    find_prefix_arguments.len,
+                find_prefix_arguments.len +
+                    (extensions.len * find_argument_per_extension_count) +
+                    (exclusions.len * find_argument_per_exclusion_count),
             );
             defer arguments.deinit(allocator);
             try arguments.appendSlice(allocator, find_prefix_arguments);
@@ -81,9 +84,25 @@ pub fn all(
                 try arguments.append(allocator, "-name");
                 try arguments.append(allocator, name);
             }
+            for (exclusions) |excluded_path| {
+                const regex =
+                    try std.mem.concat(allocator, u8, &.{
+                        find_argument_exclusion_regex_prefix,
+                        excluded_path,
+                        find_argument_exclusion_regex_suffix,
+                    });
+                try arguments.append(allocator, "-not");
+                try arguments.append(allocator, "-path");
+                try arguments.append(allocator, regex);
+            }
             defer {
                 for (arguments.items) |argument|
-                    if (argument[0] == '*')
+                    if (argument[0] == '*' or
+                        configuration.strings.isDelimited(
+                            argument,
+                            find_argument_exclusion_regex_prefix,
+                            find_argument_exclusion_regex_suffix,
+                        ))
                         allocator.free(argument);
             }
             const find = try std.process.run(allocator, io, .{
@@ -95,6 +114,7 @@ pub fn all(
             const LineReader = struct {
                 allocator: std.mem.Allocator,
                 output_writer: ?*std.Io.Writer,
+                exclusions: []const []const u8,
                 backing_paths: *std.ArrayList([]const u8),
 
                 fn read(_self: *@This(), path: []const u8) !void {
@@ -109,6 +129,7 @@ pub fn all(
             var line_reader = LineReader{
                 .allocator = allocator,
                 .output_writer = output_writer,
+                .exclusions = exclusions,
                 .backing_paths = &backing_paths,
             };
             try readLines(
@@ -129,7 +150,12 @@ pub fn all(
                     allocator,
                     filter_paths.len,
                 );
-            try backing_paths.appendSlice(allocator, filter_paths);
+            filter_path_loop: for (filter_paths) |filter_path| {
+                for (exclusions) |excluded_path|
+                    if (std.mem.eql(u8, filter_path, excluded_path))
+                        continue :filter_path_loop;
+                try backing_paths.append(allocator, filter_path);
+            }
             if (output_writer) |writer| {
                 for (filter_paths) |path| {
                     try writer.print("{s}\n", .{path});
@@ -152,6 +178,7 @@ pub fn staged(
     output_writer: ?*std.Io.Writer,
     filter: PathFilter,
     extensions: []const []const u8,
+    exclusions: []const []const u8,
 ) !Self {
     const git_status = try std.process.run(allocator, io, .{
         .argv = &.{ "git", "status", "--porcelain" },
@@ -170,6 +197,7 @@ pub fn staged(
         output_writer: ?*std.Io.Writer,
         filter: PathFilter,
         extensions: []const []const u8,
+        exclusions: []const []const u8,
         backing_paths: *std.ArrayList([]const u8),
 
         fn read(self: *@This(), line: []const u8) !void {
@@ -222,6 +250,9 @@ pub fn staged(
             while (std.ascii.isWhitespace(line[path_index]))
                 path_index += 1;
             const path = line[path_index..];
+            for (self.exclusions) |excluded_path|
+                if (std.mem.eql(u8, path, excluded_path))
+                    return;
 
             // this O(n) loop is really, really unnecessary… instead, we
             // could use a std.StringHashMap rather than a std.ArrayList for
@@ -254,6 +285,7 @@ pub fn staged(
         .output_writer = output_writer,
         .filter = filter,
         .extensions = extensions,
+        .exclusions = exclusions,
         .backing_paths = &backing_paths,
     };
     try readLines(
@@ -267,6 +299,27 @@ pub fn staged(
         .result = git_status,
         .backing_paths = backing_paths,
     };
+}
+
+fn canonicalize(
+    allocator: std.mem.Allocator,
+    io: std.Io,
+    cwd: std.process.Child.Cwd,
+    path: []const []const u8,
+) ![]const []const u8 {
+    var should_close_cwd_directory = false;
+    const cwd_directory = switch (cwd) {
+        .inherit => std.Io.Dir.cwd(),
+        .dir => |directory| directory,
+        .path => |cwd_path| _: {
+            const cwd_directory = try std.Io.Dir.cwd().openDir(cwd_path, .{});
+            should_close_cwd_directory = true;
+            break :_ cwd_directory;
+        },
+    };
+    defer if (should_close_cwd_directory)
+        cwd_directory.close();
+    return try cwd_directory.realPathFileAlloc(io, path, allocator);
 }
 
 fn readLines(

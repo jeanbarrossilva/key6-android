@@ -18,8 +18,10 @@
 identifier: []const u8,
 extensions: []const []const u8,
 arguments: []const []const u8,
+exclusions: []const []const u8 = &.{},
 
 const Error = error{
+    BlankExclusion,
     MalformedExtension,
     MissingArguments,
     MissingExtensions,
@@ -29,24 +31,15 @@ const extension_prefix = '.';
 const Self = @This();
 const run_results = @import("run_results.zig");
 const std = @import("std");
+const strings = @import("strings.zig");
 
 pub fn validate(self: Self) Error!void {
     if (self.identifier.len == 0)
         return Error.Unidentified;
-    if (self.extensions.len == 0)
-        return Error.MissingExtensions;
-    for (self.extensions) |extension| {
-        if (extension.len <= 1 or extension[0] != extension_prefix)
-            return Error.MalformedExtension;
-        for (extension[1..], 0..) |character, index|
-            if (character == extension_prefix) {
-                if (extension[index - 1] == character)
-                    return Error.MalformedExtension;
-            } else if (!std.ascii.isAlphanumeric(character))
-                return Error.MalformedExtension;
-    }
+    try self.validateExtensions();
     if (self.arguments.len == 0)
         return Error.MissingArguments;
+    try self.validateExclusions();
 }
 
 pub fn format(
@@ -68,10 +61,32 @@ pub fn format(
     run_results.deinit(result, allocator);
 }
 
+fn validateExtensions(self: Self) Error!void {
+    if (self.extensions.len == 0)
+        return Error.MissingExtensions;
+    for (self.extensions) |extension| {
+        if (extension.len <= 1 or extension[0] != extension_prefix)
+            return Error.MalformedExtension;
+        for (extension[1..], 0..) |character, index|
+            if (character == extension_prefix) {
+                if (extension[index - 1] == character)
+                    return Error.MalformedExtension;
+            } else if (!std.ascii.isAlphanumeric(character))
+                return Error.MalformedExtension;
+    }
+}
+
+fn validateExclusions(self: Self) Error!void {
+    for (self.exclusions) |excluded_path|
+        if (strings.isBlank(excluded_path))
+            return Error.BlankExclusion;
+}
+
 const zig = Self{
     .identifier = "zig",
     .extensions = &.{ ".zig", ".zig.zon" },
     .arguments = &.{ "zig", "fmt" },
+    .exclusions = &.{},
 };
 
 test "validate(): errors if unidentified" {
@@ -92,19 +107,20 @@ test "validate(): errors if extensions are missing" {
             .identifier = Self.zig.identifier,
             .extensions = &.{},
             .arguments = Self.zig.arguments,
+            .exclusions = Self.zig.exclusions,
         }),
     );
 }
 
 test "validate(): errors if extension is malformed" {
-    const extensions = &.{ "", "z", "zig", ".zig..zon", "zig zon" };
-    for (extensions) |extension|
+    for (&.{ "", "z", "zig", ".zig..zon", "zig zon" }) |extension|
         try std.testing.expectError(
             Self.Error.MalformedExtensions,
             Self.validate(.{
                 .identifier = Self.zig.identifier,
                 .extensions = &.{extension},
                 .arguments = Self.zig.arguments,
+                .exclusions = Self.zig.exclusions,
             }),
         );
 }
@@ -116,8 +132,19 @@ test "validate(): errors if arguments are missing" {
             .identifier = Self.zig.identifier,
             .extensions = Self.zig.extensions,
             .arguments = &.{},
+            .exclusions = Self.zig.exclusions,
         }),
     );
+}
+
+test "validate(): errors if exclusion is blank" {
+    for (&.{ "", " " }) |excluded_path|
+        try std.testing.expectError(Self.Error.BlankExclusion, Self.validate(.{
+            .identifier = Self.zig.identifier,
+            .extensions = Self.zig.extensions,
+            .arguments = Self.zig.arguments,
+            .exclusions = &.{excluded_path},
+        }));
 }
 
 test "validate(): succeeds if valid" {
