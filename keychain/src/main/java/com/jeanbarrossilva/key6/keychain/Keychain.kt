@@ -510,9 +510,10 @@ abstract class Keychain {
     derivedPassphrase: ByteArray
   ): ByteArray {
     val cipher = Cipher.getInstance(CIPHER_NAME)
-    val keySpec = SecretKeySpec(derivedPassphrase, "AES")
+    val keySpec = SecureSecretKeySpec(derivedPassphrase, "AES")
     val modeSpec = GCMParameterSpec(CIPHER_TAG_LENGTH_IN_BITS, iv)
     cipher.init(Cipher.ENCRYPT_MODE, keySpec, modeSpec)
+    keySpec.destroy()
     val encryptedPassword = cipher.doFinal(password.encode())
     return encryptedPassword
   }
