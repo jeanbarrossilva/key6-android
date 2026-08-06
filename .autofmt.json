@@ -4,8 +4,8 @@
     "arguments": ["google-java-format", "--replace"],
     "extensions": [".java"],
     "exclusions": [
-      "/keychain/src/main/java/de/xformerfhs/securesecretkeyspec/*",
-      "/keychain/src/test/java/com/kevinmost/junit_retry_rule/*"
+      "/android/keychain/src/main/java/de/xformerfhs/securesecretkeyspec/*",
+      "/android/keychain/src/test/java/com/kevinmost/junit_retry_rule/*"
     ]
   },
   {
