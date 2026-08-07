@@ -1,28 +1,3 @@
-// there are no visibility modifiers in Zig. we, then, levearage an old-time's
-// technique; a blessing bestowed upon us by the gods of the Olympus: the
-// underscore prefix (_).
-//
-// fields that SHOULDN'T be meddled with have their name beginning with an
-// underscore. pretty please, DON'T touch these fields. (or do, but at your own
-// risk.) :p
-
-/// Cryptographically-secure pseudorandom number generator (CSPRNG) by which
-/// AES-256-GCM nonces and tags are generated for encrypting the secrets of
-/// keys.
-_csprng: std.Random.DefaultCsprng,
-
-/// Argon2 hash of this keychain's main password.
-_main_password_hash: []const u8,
-
-/// Actual amount of unsuccessful attempts to unlock this keychain.
-_current_unlock_attempt_count: usize,
-
-/// Unix-epoch-based duration in seconds since this keychain was last active.
-/// Being "active" means performing any operation that would require entering
-/// the main password when the keychain is inactive (e.g., reading the secrets
-/// of a key).
-_last_activity_time_in_secs: u128,
-
 /// Maximum amount of attempts to enter the main password. Once incorrect
 /// passwords have been provided more times than the quantity assigned to this
 /// field, an error will be returned by the function of this keychain that
@@ -34,7 +9,18 @@ max_unlock_attempt_count: usize,
 /// this keychain.
 inactivity_threshold_in_secs: u128,
 
-/// Utilities for dealing with a keychain's main password.
+_allocator: std.mem.Allocator,
+_csprng: std.Random.DefaultCsprng,
+_main_password_hash: []const u8,
+_main_password_verify_options: pwhash.argon2.VerifyOptions,
+_current_unlock_attempt_count: usize,
+_last_activity_time_in_secs: u128,
+
+/// Failure resulted from attempting to perform an operation related strictly to
+/// a keychain.
+pub const Error = error{TooManyUnlockAttempts};
+
+/// Static utilities for dealing with a keychain's main password.
 pub const MainPassword = struct {
     /// Error related to the main password assigned to a keychain.
     pub const Error = error{
@@ -48,17 +34,19 @@ pub const MainPassword = struct {
         TooManyConsecutions,
     };
 
-    fn validate(main_password: []const u8) Error!void {
+    fn validate(main_password: []const u8) @This().Error!void {
         try requireNonBlank(main_password);
         try requireNonOverlyConsecutive(main_password);
     }
 
-    fn requireNonBlank(main_password: []const u8) Error!void {
+    fn requireNonBlank(main_password: []const u8) @This().Error!void {
         if (strings.isBlank(main_password))
-            return Error.Blank;
+            return @This().Error.Blank;
     }
 
-    fn requireNonOverlyConsecutive(main_password: []const u8) Error!void {
+    fn requireNonOverlyConsecutive(
+        main_password: []const u8,
+    ) @This().Error!void {
         var consecution_len: usize = 0;
         for (main_password[1..], 1..) |curr_char, i| {
             const prev_char = main_password[i - 1];
@@ -66,19 +54,33 @@ pub const MainPassword = struct {
                 consecution_len = 0;
                 continue;
             }
-            if (consecution_len == max_main_password_consecution_len - 1)
-                return Error.TooManyConsecutions;
             consecution_len += 1;
+            if (consecution_len == max_main_password_consecution_len)
+                return @This().Error.TooManyConsecutions;
         }
+    }
+
+    fn hash(
+        allocator: std.mem.Allocator,
+        io: std.Io,
+        main_password: []const u8,
+        params: pwhash.argon2.Params,
+    ) pwhash.Error![]const u8 {
+        var out: [128]u8 = undefined;
+        const options = pwhash.argon2.HashOptions{
+            .allocator = allocator,
+            .params = params,
+        };
+        return pwhash.argon2.strHash(main_password, options, &out, io);
     }
 };
 
-pub const default_max_unlock_attempt_count = 3;
-
+const pwhash = std.crypto.pwhash;
 const Self = @This();
 const std = @import("std");
 const strings = @import("strings.zig");
 
+const default_max_unlock_attempt_count = 3;
 const max_main_password_consecution_len = 4;
 
 /// Initializes a keychain with the given main password given in plaintext. A
@@ -100,48 +102,68 @@ const max_main_password_consecution_len = 4;
 /// The passed-in RNG is not that of the keychain itself; rather, its only role
 /// in this initialization is to generate the seed for the keychain's CSPRNG.
 pub fn init(
+    allocator: std.mem.Allocator,
+    io: std.Io,
     rng: std.Random,
     main_password: []const u8,
+    main_password_hasher_params: pwhash.argon2.Params,
     max_unlock_attempt_count: usize,
 ) !Self {
     var csprng_seed: [32]u8 = undefined;
     rng.bytes(&csprng_seed);
     try MainPassword.validate(main_password);
     return .{
-        ._csprng = .init(csprng_seed),
-        ._main_password_hash = "4ppl3s33d",
-        ._current_unlock_attempt_count = 0,
-        ._last_activity_time_in_secs = 0,
         .max_unlock_attempt_count = max_unlock_attempt_count,
         .inactivity_threshold_in_secs = 0,
+        ._allocator = allocator,
+        ._csprng = .init(csprng_seed),
+        ._main_password_hash = try MainPassword.hash(
+            allocator,
+            io,
+            main_password,
+            main_password_hasher_params,
+        ),
+        ._main_password_verify_options = .{ .allocator = allocator },
+        ._current_unlock_attempt_count = 0,
+        ._last_activity_time_in_secs = 0,
     };
 }
 
-pub fn unlock(
-    self: *Self,
-    io: std.Io,
-    main_password: []const u8,
-) error{TooManyUnlockAttempts}!void {
-    const now: u128 = @intCast(std.Io.Clock.real.now(io).toSeconds());
-    if (self.inactivity_threshold_in_secs > 0) {
-        const inactivity_in_secs = now - self._last_activity_time_in_secs;
-        if (inactivity_in_secs <= self.inactivity_threshold_in_secs)
-            return;
-    }
-
-    // this condition makes no sense, no. will change it very soon.
-    if (std.mem.eql(u8, self._main_password_hash, main_password)) {
-        self._current_unlock_attempt_count = 0;
-        self._last_activity_time_in_secs = now;
+pub fn unlock(self: *Self, io: std.Io, main_password: []const u8) !void {
+    const now_in_secs: u128 = @intCast(std.Io.Clock.real.now(io).toSeconds());
+    if (!self.isLocked(now_in_secs))
         return;
-    }
-
-    if (self._current_unlock_attempt_count == self.max_unlock_attempt_count) {
-        self._current_unlock_attempt_count = 0;
-        return error.TooManyUnlockAttempts;
-    }
-    self._current_unlock_attempt_count += 1;
+    pwhash.argon2.strVerify(
+        self._main_password_hash,
+        main_password,
+        self._main_password_verify_options,
+        io,
+    ) catch |err| switch (err) {
+        std.crypto.errors.Error.InvalidEncoding,
+        std.crypto.errors.Error.PasswordVerificationFailed,
+        => {
+            if (self._current_unlock_attempt_count ==
+                self.max_unlock_attempt_count)
+            {
+                self._current_unlock_attempt_count = 0;
+                return Error.TooManyUnlockAttempts;
+            }
+            self._current_unlock_attempt_count += 1;
+            return;
+        },
+        else => {},
+    };
+    self._current_unlock_attempt_count = 0;
+    self._last_activity_time_in_secs = now_in_secs;
 }
+
+fn isLocked(self: Self, now_in_secs: u128) bool {
+    return now_in_secs -
+        self._last_activity_time_in_secs >
+        self.inactivity_threshold_in_secs;
+}
+
+const argon2_params = @import("argon2_params.zig");
 
 test "init(): errors on blank main password" {
     var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
@@ -149,8 +171,11 @@ test "init(): errors on blank main password" {
         try std.testing.expectError(
             MainPassword.Error.Blank,
             init(
+                std.testing.allocator,
+                std.testing.io,
                 default_prng.random(),
                 main_password,
+                argon2_params.min,
                 default_max_unlock_attempt_count,
             ),
         );
@@ -173,8 +198,11 @@ test "init(): errors on main password with 5+ character consecutions" {
         try std.testing.expectError(
             MainPassword.Error.TooManyConsecutions,
             init(
+                std.testing.allocator,
+                std.testing.io,
                 default_prng.random(),
                 main_password,
+                argon2_params.min,
                 default_max_unlock_attempt_count,
             ),
         );
@@ -186,8 +214,11 @@ test "init(): main password isn't in hash" {
     var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const main_password = "appleseed";
     const keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
         default_prng.random(),
         main_password,
+        argon2_params.min,
         default_max_unlock_attempt_count,
     );
     try std.testing.expectEqual(
@@ -200,8 +231,11 @@ test "init(): main password isn't discarded" {
     var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const main_password = "appleseed";
     _ = try init(
+        std.testing.allocator,
+        std.testing.io,
         default_prng.random(),
         main_password,
+        argon2_params.min,
         default_max_unlock_attempt_count,
     );
     try std.testing.expectEqual("appleseed", main_password);
@@ -210,25 +244,32 @@ test "init(): main password isn't discarded" {
 test "unlock(): errors on exceeding unsuccessful attempts" {
     var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
         default_prng.random(),
         "appleseed",
+        argon2_params.min,
         default_max_unlock_attempt_count,
     );
     while (keychain._current_unlock_attempt_count <
         keychain.max_unlock_attempt_count)
         try keychain.unlock(std.testing.io, "");
     try std.testing.expectError(
-        error.TooManyUnlockAttempts,
+        Error.TooManyUnlockAttempts,
         keychain.unlock(std.testing.io, ""),
     );
 }
 
 test "unlock(): unlocks" {
     var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const main_password = "appleseed";
     var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
         default_prng.random(),
-        "appleseed",
+        main_password,
+        argon2_params.min,
         default_max_unlock_attempt_count,
     );
-    try keychain.unlock(std.testing.io, "appleseed");
+    try keychain.unlock(std.testing.io, main_password);
 }
