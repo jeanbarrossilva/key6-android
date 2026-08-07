@@ -18,7 +18,15 @@ _last_activity_time_in_secs: u128,
 
 /// Failure resulted from attempting to perform an operation related strictly to
 /// a keychain.
-pub const Error = error{TooManyUnlockAttempts};
+pub const Error = error{
+    /// The amount of unsuccessful attempts to unlock the keychain was greater
+    /// than the maximum quantity defined for that specific keychain.
+    TooManyUnlockAttempts,
+
+    /// The kcychain was attempted to be unlocked without its main password
+    /// while the keychain was locked and, therefore, required its password.
+    Locked
+};
 
 /// Static utilities for dealing with a keychain's main password.
 pub const MainPassword = struct {
@@ -129,13 +137,20 @@ pub fn init(
     };
 }
 
-pub fn unlock(self: *Self, io: std.Io, main_password: []const u8) !void {
+/// Allows for reading the secrets of keys from now on, until the duration
+/// defined as the inactivity threshold of this keychain. After such time,
+/// attempting to read those secrets without having called this function again
+/// will result in an error being thrown.
+///
+/// This function is a no-op in case this keychain is already unlocked _and_ no
+/// main password (i.e., a null one) is passed in.
+pub fn unlock(self: *Self, io: std.Io, main_password: ?[]const u8) Error!void {
     const now_in_secs: u128 = @intCast(std.Io.Clock.real.now(io).toSeconds());
-    if (!self.isLocked(now_in_secs))
-        return;
+    const mp = main_password orelse
+        return if (!self.isLocked(now_in_secs)) {} else Error.Locked;
     pwhash.argon2.strVerify(
         self._main_password_hash,
-        main_password,
+        mp,
         self._main_password_verify_options,
         io,
     ) catch |err| switch (err) {
@@ -260,7 +275,7 @@ test "unlock(): errors on exceeding unsuccessful attempts" {
     );
 }
 
-test "unlock(): unlocks" {
+test "unlock(): unlocks if given the correct main password" {
     var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     const main_password = "appleseed";
     var keychain = try init(
@@ -272,4 +287,39 @@ test "unlock(): unlocks" {
         default_max_unlock_attempt_count,
     );
     try keychain.unlock(std.testing.io, main_password);
+}
+
+test "unlock(): doesn't require main password within inactivity threshold" {
+    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const main_password = "appleseed";
+    var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
+        default_prng.random(),
+        main_password,
+        argon2_params.min,
+        default_max_unlock_attempt_count,
+    );
+    keychain.inactivity_threshold_in_secs =
+        std.math.maxInt(@TypeOf(keychain.inactivity_threshold_in_secs));
+    try keychain.unlock(std.testing.io, main_password);
+    try keychain.unlock(std.testing.io, null);
+}
+
+test "unlock(): requires main password after inactivity threshold" {
+    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
+    const main_password = "appleseed";
+    var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
+        default_prng.random(),
+        main_password,
+        argon2_params.min,
+        default_max_unlock_attempt_count,
+    );
+    try keychain.unlock(std.testing.io, main_password);
+    try std.testing.expectError(
+        Error.Locked,
+        keychain.unlock(std.testing.io, null),
+    );
 }
