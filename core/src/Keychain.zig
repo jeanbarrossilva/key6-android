@@ -1,3 +1,19 @@
+// Copyright © Jean Silva
+//
+// This file is part of the Key6 open-source project.
+//
+// Key6 is free software: you can redistribute it and/or modify it under the
+// terms of the GNU General Public License as published by the Free Software
+// Foundation, either version 3 of the License, or (at your option) any later
+// version.
+//
+// Key6 is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
+// A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+//
+// You should have received a copy of the GNU General Public License along with
+// this program. If not, see https://www.gnu.org/licenses.
+
 /// Maximum amount of attempts to enter the main password. Once incorrect
 /// passwords have been provided more times than the quantity assigned to this
 /// field, an error will be returned by the function of this keychain that
@@ -12,9 +28,9 @@ inactivity_threshold_in_secs: u128,
 _allocator: std.mem.Allocator,
 _csprng: std.Random.DefaultCsprng,
 _main_password_hash: []const u8,
-_main_password_verify_options: pwhash.argon2.VerifyOptions,
+_main_password_verify_options: argon2.VerifyOptions,
 _current_unlock_attempt_count: usize,
-_last_activity_time_in_secs: u128,
+_last_activity_timestamp_in_secs: u128,
 _keys: std.AutoHashMap(u128, Key),
 
 /// Failure resulted from attempting to perform an operation related strictly to
@@ -45,11 +61,8 @@ pub const Key = struct {
     /// username or a phone number.
     login: []const u8,
 
-    /// Random bytes for preventing the encryption of the plain password of two
-    /// keys from resulting in the same ciphertext.
-    salt: [16]u8,
-
-    /// Random bytes for…?
+    /// Random bytes for producing different ciphertexts when encrypting equal
+    /// plain passwords of two keys.
     iv: [12]u8,
 
     /// Ciphertext from having encrypted the password in plaintext of this key.
@@ -59,17 +72,32 @@ pub const Key = struct {
     /// website.
     path: ?std.Uri,
 
+    /// Failure that may occur while initializing a key, depending on the
+    /// arguments passed in by the caller. Such an error will *never* be
+    /// returned when *retrieving* a key, but may happen when storing one, due
+    /// to the arbitrarity of the user-provided arguments.
     pub const Error = error{
+        /// The key's ID isn't a UUID v7. With v7 UUIDs, apart from them being
+        /// sufficiently unique, we can sort keys based on the time at which
+        /// they were stored in the keychain.
         MalformedID,
+
+        /// The key's label was left blank. An unlabeled key would be confusing
+        /// and significantly difficult to distinguish from other keys, given
+        /// that its ID isn't user-facing (and, event if it was, doesn't give
+        /// some human-readable clue about *which* key it identifies).
         Unlabeled,
-        InsufficientCredentials,
+
+        /// The key contains neither login nor password. It is required that one
+        /// of the two isn't blank, since the purpose of a key is to store
+        /// *some* authentication information.
+        Insufficient,
     };
 
     fn init(
         io: std.Io,
         label: []const u8,
         login: []const u8,
-        salt: [16]u8,
         iv: [12]u8,
         encrypted_password: []const u8,
         path: ?std.Uri,
@@ -77,10 +105,9 @@ pub const Key = struct {
         try validateLabel(label);
         try validateCredentials(login, encrypted_password);
         return .{
-            .id = uuid.v7.new(io),
+            .id = @bitCast(zuid.new.v7(io)),
             .label = label,
             .login = login,
-            .salt = salt,
             .iv = iv,
             .encrypted_password = encrypted_password,
             .path = path,
@@ -94,7 +121,8 @@ pub const Key = struct {
     }
 
     fn validateID(id: u128) @This().Error!void {
-        _ = uuid.urn.deserialize(std.mem.asBytes(&id)) catch
+        const uuid: zuid.UUID = @bitCast(id);
+        if (uuid.version != 7)
             return @This().Error.MalformedID;
     }
 
@@ -108,7 +136,7 @@ pub const Key = struct {
         password: []const u8,
     ) @This().Error!void {
         if (strings.isBlank(login) and strings.isBlank(password))
-            return @This().Error.InsufficientCredentials;
+            return @This().Error.Insufficient;
     }
 };
 
@@ -156,14 +184,14 @@ pub const MainPassword = struct {
         allocator: std.mem.Allocator,
         io: std.Io,
         main_password: []const u8,
-        params: pwhash.argon2.Params,
+        params: argon2.Params,
     ) pwhash.Error![]const u8 {
         var out: [128]u8 = undefined;
         const options = pwhash.argon2.HashOptions{
             .allocator = allocator,
             .params = params,
         };
-        return pwhash.argon2.strHash(main_password, options, &out, io);
+        return argon2.strHash(main_password, options, &out, io);
     }
 };
 
@@ -174,11 +202,14 @@ pub fn deinit(self: *Self) void {
 
 pub const default_max_unlock_attempt_count = 3;
 
-const pwhash = std.crypto.pwhash;
+const aes_gcm = crypto.aes_gcm;
+const argon2 = pwhash.argon2;
+const crypto = std.crypto;
+const pwhash = crypto.pwhash;
 const Self = @This();
 const std = @import("std");
 const strings = @import("strings.zig");
-const uuid = @import("uuid");
+const zuid = @import("zuid");
 
 const max_main_password_consecution_len = 4;
 
@@ -224,7 +255,7 @@ pub fn init(
         ),
         ._main_password_verify_options = .{ .allocator = allocator },
         ._current_unlock_attempt_count = 0,
-        ._last_activity_time_in_secs = 0,
+        ._last_activity_timestamp_in_secs = 0,
         ._keys = .init(allocator),
     };
 }
@@ -305,12 +336,12 @@ pub fn unlock(self: *Self, io: std.Io, main_password: ?[]const u8) Error!void {
         else => {},
     };
     self._current_unlock_attempt_count = 0;
-    self._last_activity_time_in_secs = now_in_secs;
+    self._last_activity_timestamp_in_secs = now_in_secs;
 }
 
 fn isLocked(self: Self, now_in_secs: u128) bool {
     return now_in_secs -
-        self._last_activity_time_in_secs >
+        self._last_activity_timestamp_in_secs >
         self.inactivity_threshold_in_secs;
 }
 
@@ -323,23 +354,21 @@ const permutator = @import("permutator.zig");
 
 test "Key.validate(): errors if ID isn't a UUID v7" {
     var key = sampleKey();
-    const uuidV1 = 271512419355585897264112360044229548004;
-    const uuidV2 = 46389061844604403514171447268;
-    const uuidV3 = 192008915286352178671835060405176363243;
-    const uuidV5 = 276146808210084729002700941631111409175;
-    const uuidV6 = 41337787919363718083970579157359777764;
-    inline for (&.{
+    const ids = [_]u128{
         0,
-        uuidV1,
-        uuidV2,
-        uuidV3,
-        uuid.v4.new(std.testing.io),
-        uuidV5,
-        uuidV6,
-    }) |id| {
+        @bitCast(zuid.new.v1(std.testing.io)),
+        @bitCast(zuid.new.v4(std.testing.io)),
+        @bitCast(zuid.new.v6(std.testing.io)),
+    };
+    inline for (ids) |id| {
         key.id = id;
         try std.testing.expectError(Key.Error.MalformedID, key.validate());
     }
+}
+
+test "Key.init(): generated ID is always valid" {
+    for (0..255) |_|
+        try sampleKey().validate();
 }
 
 test "Key.init(): errors if both credentials are blank" {
@@ -351,12 +380,11 @@ test "Key.init(): errors if both credentials are blank" {
         key.login = permutation[0];
         key.encrypted_password = permutation[1];
         try std.testing.expectError(
-            Key.Error.InsufficientCredentials,
+            Key.Error.Insufficient,
             Key.init(
                 std.testing.io,
                 key.label,
                 key.login,
-                key.salt,
                 key.iv,
                 key.encrypted_password,
                 key.path,
@@ -510,13 +538,17 @@ test "unlock(): requires main password after inactivity threshold" {
 }
 
 fn sampleKey() Key {
-    return .{
-        .id = uuid.v7.new(std.testing.io),
-        .label = "key6",
-        .login = "john@appleseed.com",
-        .salt = [_]u8{0} ** 16,
-        .iv = [_]u8{0} ** 12,
-        .encrypted_password = "4pp3s33d",
-        .path = null,
-    };
+    const label = "Key6";
+    const login = "john@appleseed.com";
+    const iv = [_]u8{0} ** 12;
+    const encrypted_password = "4ppl3s33d";
+    const path: ?std.Uri = null;
+    return Key.init(
+        std.testing.io,
+        label,
+        login,
+        iv,
+        encrypted_password,
+        path,
+    ) catch unreachable;
 }

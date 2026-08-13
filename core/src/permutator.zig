@@ -57,9 +57,9 @@ pub fn Iterator(comptime Element: type, permutation_len: usize) type {
         }
 
         /// Computes the next permutation of the slice, guaranteed to be
-        /// different (element- or order-wise) from all other permutations
+        /// different (element- and order-wise) from all other permutations
         /// provided by previous calls to this function *only if* all elements
-        /// differ from one anohter.
+        /// differ from one another.
         ///
         /// In case there aren't any permutations left, null is returned.
         pub fn next(self: *Self) ?[permutation_len]Element {

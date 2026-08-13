@@ -8,13 +8,13 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize_mode,
     };
 
-    const uuid_module = b.dependency("uuid", dependency_args).module("uuid");
+    const zuid_module = b.dependency("zuid", dependency_args).module("zuid");
 
     const core_module = b.addModule("core", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .imports = &.{
-            .{ .name = "uuid", .module = uuid_module },
+            .{ .name = "zuid", .module = zuid_module },
         },
     });
     const core_exe = b.addExecutable(.{
