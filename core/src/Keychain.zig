@@ -61,16 +61,80 @@ pub const Key = struct {
     /// username or a phone number.
     login: []const u8,
 
-    /// Random bytes for producing different ciphertexts when encrypting equal
-    /// plain passwords of two keys.
-    iv: [12]u8,
-
     /// Ciphertext from having encrypted the password in plaintext of this key.
-    encrypted_password: []const u8,
+    credential: ?Credential,
 
     /// URI that leads to the site. Usually, is that of a local file or a
     /// website.
     path: ?std.Uri,
+
+    /// Encrypted password for authenticating at a site.
+    pub const Credential = struct {
+        /// 256-bit sequence generated randomly by a CSPRNG, used to encrypt
+        /// the password.
+        key: [Aes256Gcm.key_length]u8,
+
+        /// Random bytes for producing different ciphertexts when encrypting
+        /// two equal paswords. This is an input for encryption and, afterward,
+        /// decryption.
+        iv: [Aes256Gcm.nonce_length]u8,
+
+        /// Bytes generated after encryption of the password, with which the
+        /// encrypted password can be decrypted and ensured that no external
+        /// attacker tampered with it.
+        authentication_tag: [Aes256Gcm.tag_length]u8,
+
+        /// Encrypted contents of this credential.
+        ciphertext: []const u8,
+
+        const associated_data = "";
+
+        fn decrypt(
+            self: Credential,
+            allocator: std.mem.Allocator,
+        ) ![]const u8 {
+            const password = try allocator.alloc(u8, self.ciphertext.len);
+            try Aes256Gcm.decrypt(
+                password,
+                self.ciphertext,
+                self.authentication_tag,
+                associated_data,
+                self.iv,
+                self.key,
+            );
+            return password;
+        }
+
+        fn deinit(self: Credential, allocator: std.mem.Allocator) void {
+            allocator.free(self.ciphertext);
+        }
+
+        fn encrypt(
+            allocator: std.mem.Allocator,
+            csprng: *std.Random.DefaultCsprng,
+            password: []const u8,
+            iv: [12]u8,
+        ) error{OutOfMemory}!Credential {
+            var key: [Aes256Gcm.key_length]u8 = undefined;
+            csprng.fill(&key);
+            const ciphertext = try allocator.alloc(u8, password.len);
+            var authentication_tag: [Aes256Gcm.tag_length]u8 = undefined;
+            Aes256Gcm.encrypt(
+                ciphertext,
+                &authentication_tag,
+                password,
+                associated_data,
+                iv,
+                key,
+            );
+            return .{
+                .key = key,
+                .iv = iv,
+                .authentication_tag = authentication_tag,
+                .ciphertext = ciphertext,
+            };
+        }
+    };
 
     /// Failure that may occur while initializing a key, depending on the
     /// arguments passed in by the caller. Such an error will *never* be
@@ -94,22 +158,46 @@ pub const Key = struct {
         Insufficient,
     };
 
+    /// Represents a "level" in which a key has been given information in order
+    /// for such key to be sufficient. In case none of the three levels are that
+    /// of the key and it gets validated by `validate()` afterward, an error
+    /// will be returned.
+    pub const Sufficiency = enum {
+        /// A non-blank login and a blank password were provided to the key.
+        contains_login_only,
+
+        /// A blank login and a non-blank password were provided to the key.
+        contains_credential_only,
+
+        /// A non-blank login and a non-blank password were provided to the key.
+        contains_login_and_credential,
+    };
+
     fn init(
+        allocator: std.mem.Allocator,
         io: std.Io,
+        csprng: *std.Random.DefaultCsprng,
         label: []const u8,
         login: []const u8,
-        iv: [12]u8,
-        encrypted_password: []const u8,
+        password: []const u8,
         path: ?std.Uri,
-    ) @This().Error!Key {
+    ) !Key {
         try validateLabel(label);
-        try validateCredentials(login, encrypted_password);
+        const sufficiency = validateSufficiency(login, password) catch |err|
+            return err;
+        var iv: [12]u8 = undefined;
+        csprng.fill(&iv);
         return .{
             .id = @bitCast(zuid.new.v7(io)),
             .label = label,
             .login = login,
-            .iv = iv,
-            .encrypted_password = encrypted_password,
+            .credential = switch (sufficiency) {
+                .contains_credential_only,
+                .contains_login_and_credential,
+                => try .encrypt(allocator, csprng, password, iv),
+                .contains_login_only,
+                => null,
+            },
             .path = path,
         };
     }
@@ -117,7 +205,15 @@ pub const Key = struct {
     fn validate(self: Key) @This().Error!void {
         try validateID(self.id);
         try validateLabel(self.label);
-        try validateCredentials(self.login, self.encrypted_password);
+        if (self.credential) |credential| {
+            _ = try validateSufficiency(self.login, credential.ciphertext);
+        } else if (strings.isBlank(self.login))
+            return @This().Error.Insufficient;
+    }
+
+    fn deinit(self: Key, allocator: std.mem.Allocator) void {
+        const credential = self.credential orelse return;
+        credential.deinit(allocator);
     }
 
     fn validateID(id: u128) @This().Error!void {
@@ -131,12 +227,18 @@ pub const Key = struct {
             return @This().Error.Unlabeled;
     }
 
-    fn validateCredentials(
+    fn validateSufficiency(
         login: []const u8,
         password: []const u8,
-    ) @This().Error!void {
-        if (strings.isBlank(login) and strings.isBlank(password))
-            return @This().Error.Insufficient;
+    ) @This().Error!Sufficiency {
+        const is_login_blank = strings.isBlank(login);
+        const is_password_blank = strings.isBlank(password);
+        return if (is_login_blank and is_password_blank)
+            @This().Error.Insufficient
+        else if (is_login_blank)
+            .contains_login_only
+        else
+            .contains_credential_only;
     }
 };
 
@@ -195,14 +297,9 @@ pub const MainPassword = struct {
     }
 };
 
-/// Frees memory allocated by this keychain.
-pub fn deinit(self: *Self) void {
-    self._keys.deinit();
-}
-
 pub const default_max_unlock_attempt_count = 3;
 
-const aes_gcm = crypto.aes_gcm;
+const Aes256Gcm = crypto.aead.aes_gcm.Aes256Gcm;
 const argon2 = pwhash.argon2;
 const crypto = std.crypto;
 const pwhash = crypto.pwhash;
@@ -239,7 +336,8 @@ pub fn init(
     main_password_hasher_params: pwhash.argon2.Params,
     max_unlock_attempt_count: usize,
 ) !Self {
-    var csprng_seed: [32]u8 = undefined;
+    var csprng_seed: [std.Random.DefaultCsprng.secret_seed_length]u8 =
+        undefined;
     rng.bytes(&csprng_seed);
     try MainPassword.validate(main_password);
     return .{
@@ -275,33 +373,42 @@ pub fn storeKey(
     plain_password: []const u8,
     path: ?std.Uri,
 ) !u128 {
-    var salt: [12]u8 = undefined;
-    self._csprng.fill(&salt);
-    var iv: [16]u8 = undefined;
-    self._csprng.fill(&iv);
-    const key = try Key.init(io, label, login, salt, iv, plain_password, path);
+    const key = try Key.init(
+        self._allocator,
+        io,
+        &self._csprng,
+        label,
+        login,
+        plain_password,
+        path,
+    );
     try self._keys.put(key.id, key);
-    return key;
+    return key.id;
 }
 
 /// Reads non-sensitive information about a key with the given ID that's been
 /// stored in this keychain. As the credentials of such key are still encrypted
 /// even when it's returned, this operation doesn't require that this keychain
 /// be unlocked.
-pub fn getKey(self: Self, id: u128) Key.Error!?Key {
+///
+/// This function will error in case the ID is malformed, or return null if it
+/// isn't that of a key stored in this keychain.
+pub fn findKey(self: Self, id: u128) Key.Error!?Key {
     try Key.validateID(id);
     return self._keys.get(id);
 }
 
-/// Decrypts the encrypted password of the given key. This function requires
-/// both that this keychain be unlocked and they to belong to this keychain;
-/// otherwise, an error or null is returned, respectively.
-pub fn getPlainPassword(self: Self, key: Key) Error!?[]const u8 {
-    if (self.isLocked(nowInSecs()))
+/// Decrypts the credential of the given key. This function requires both that
+/// this keychain be unlocked and such key belong to this keychain; otherwise,
+/// an error or null is returned, respectively.
+pub fn readPassword(self: Self, io: std.Io, key: Key) !?[]const u8 {
+    if (self.isLocked(nowInSecs(io)))
         return Error.Locked;
     if (!self._keys.contains(key.id))
         return null;
-    return key.encrypted_password;
+    if (key.credential) |credential|
+        return try credential.decrypt(self._allocator);
+    return null;
 }
 
 /// Allows for reading the credentials of keys from now on, until the duration
@@ -339,6 +446,14 @@ pub fn unlock(self: *Self, io: std.Io, main_password: ?[]const u8) Error!void {
     self._last_activity_timestamp_in_secs = now_in_secs;
 }
 
+/// Frees memory allocated by this keychain.
+pub fn deinit(self: *Self) void {
+    var key_iter = self._keys.valueIterator();
+    while (key_iter.next()) |key|
+        key.deinit(self._allocator);
+    self._keys.deinit();
+}
+
 fn isLocked(self: Self, now_in_secs: u128) bool {
     return now_in_secs -
         self._last_activity_timestamp_in_secs >
@@ -352,8 +467,16 @@ fn nowInSecs(io: std.Io) u128 {
 const argon2_params = @import("argon2_params.zig");
 const permutator = @import("permutator.zig");
 
+var default_csprng = std.Random.DefaultCsprng.init(
+    [_]u8{0} ** std.Random.DefaultCsprng.secret_seed_length,
+);
+var default_prng = std.Random.DefaultPrng.init(0);
+const default_main_password = "appleseed";
+const default_password = "password123";
+
 test "Key.validate(): errors if ID isn't a UUID v7" {
-    var key = sampleKey();
+    var key = initSampleKey();
+    defer key.deinit(std.testing.allocator);
     const ids = [_]u128{
         0,
         @bitCast(zuid.new.v1(std.testing.io)),
@@ -367,26 +490,31 @@ test "Key.validate(): errors if ID isn't a UUID v7" {
 }
 
 test "Key.init(): generated ID is always valid" {
-    for (0..255) |_|
-        try sampleKey().validate();
+    for (0..255) |_| {
+        const key = initSampleKey();
+        defer key.deinit(std.testing.allocator);
+        try key.validate();
+    }
 }
 
 test "Key.init(): errors if both credentials are blank" {
-    var key = sampleKey();
+    var key = initSampleKey();
+    defer key.deinit(std.testing.allocator);
     var backing_credentials = [_][]const u8{ "", " ", "  " };
     var credentials: [][]const u8 = backing_credentials[0..];
     var credential_iter = permutator.Iterator([]const u8, 2).init(&credentials);
     while (credential_iter.next()) |permutation| {
+        const password = permutation[1];
         key.login = permutation[0];
-        key.encrypted_password = permutation[1];
         try std.testing.expectError(
             Key.Error.Insufficient,
             Key.init(
+                std.testing.allocator,
                 std.testing.io,
+                &default_csprng,
                 key.label,
                 key.login,
-                key.iv,
-                key.encrypted_password,
+                password,
                 key.path,
             ),
         );
@@ -394,7 +522,6 @@ test "Key.init(): errors if both credentials are blank" {
 }
 
 test "init(): errors on blank main password" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     inline for (&.{ "", " ", "  " }) |main_password|
         try std.testing.expectError(
             MainPassword.Error.Blank,
@@ -410,7 +537,6 @@ test "init(): errors on blank main password" {
 }
 
 test "init(): errors on main password with 5+ character consecutions" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     inline for (&.{
         try strings.repeat(
             "a",
@@ -439,38 +565,39 @@ test "init(): errors on main password with 5+ character consecutions" {
 }
 
 test "init(): main password isn't in hash" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
-    const main_password = "appleseed";
-    const keychain = try init(
+    var keychain = try init(
         std.testing.allocator,
         std.testing.io,
         default_prng.random(),
-        main_password,
+        default_main_password,
         argon2_params.min,
         default_max_unlock_attempt_count,
     );
+    defer keychain.deinit();
     try std.testing.expectEqual(
         null,
-        std.mem.indexOf(u8, keychain._main_password_hash, main_password),
+        std.mem.indexOf(
+            u8,
+            keychain._main_password_hash,
+            default_main_password,
+        ),
     );
 }
 
 test "init(): main password isn't discarded" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
-    const main_password = "appleseed";
-    _ = try init(
+    var keychain = try init(
         std.testing.allocator,
         std.testing.io,
         default_prng.random(),
-        main_password,
+        default_main_password,
         argon2_params.min,
         default_max_unlock_attempt_count,
     );
-    try std.testing.expectEqual("appleseed", main_password);
+    defer keychain.deinit();
+    try std.testing.expectEqual("appleseed", default_main_password);
 }
 
 test "unlock(): errors on exceeding unsuccessful attempts" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
     var keychain = try init(
         std.testing.allocator,
         std.testing.io,
@@ -479,6 +606,7 @@ test "unlock(): errors on exceeding unsuccessful attempts" {
         argon2_params.min,
         default_max_unlock_attempt_count,
     );
+    defer keychain.deinit();
     while (keychain._current_unlock_attempt_count <
         keychain.max_unlock_attempt_count)
         try keychain.unlock(std.testing.io, "");
@@ -489,66 +617,142 @@ test "unlock(): errors on exceeding unsuccessful attempts" {
 }
 
 test "unlock(): unlocks if given the correct main password" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
-    const main_password = "appleseed";
     var keychain = try init(
         std.testing.allocator,
         std.testing.io,
         default_prng.random(),
-        main_password,
+        default_main_password,
         argon2_params.min,
         default_max_unlock_attempt_count,
     );
-    try keychain.unlock(std.testing.io, main_password);
+    defer keychain.deinit();
+    try keychain.unlock(std.testing.io, default_main_password);
 }
 
 test "unlock(): doesn't require main password within inactivity threshold" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
-    const main_password = "appleseed";
     var keychain = try init(
         std.testing.allocator,
         std.testing.io,
         default_prng.random(),
-        main_password,
+        default_main_password,
         argon2_params.min,
         default_max_unlock_attempt_count,
     );
-    keychain.inactivity_threshold_in_secs =
-        std.math.maxInt(@TypeOf(keychain.inactivity_threshold_in_secs));
-    try keychain.unlock(std.testing.io, main_password);
+    defer keychain.deinit();
+    makeAlwaysActive(&keychain);
+    try keychain.unlock(std.testing.io, default_main_password);
     try keychain.unlock(std.testing.io, null);
 }
 
 test "unlock(): requires main password after inactivity threshold" {
-    var default_prng = std.Random.DefaultPrng.init(std.testing.random_seed);
-    const main_password = "appleseed";
     var keychain = try init(
         std.testing.allocator,
         std.testing.io,
         default_prng.random(),
-        main_password,
+        default_main_password,
         argon2_params.min,
         default_max_unlock_attempt_count,
     );
-    try keychain.unlock(std.testing.io, main_password);
+    defer keychain.deinit();
+    try keychain.unlock(std.testing.io, default_main_password);
     try std.testing.expectError(
         Error.Locked,
         keychain.unlock(std.testing.io, null),
     );
 }
 
-fn sampleKey() Key {
+test "storeKey(): key's password isn't stored in plaintext" {
+    var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
+        default_prng.random(),
+        default_main_password,
+        argon2_params.min,
+        default_max_unlock_attempt_count,
+    );
+    defer keychain.deinit();
+    const template_key = initSampleKey();
+    defer template_key.deinit(std.testing.allocator);
+    const keyID = try keychain.storeKey(
+        std.testing.io,
+        template_key.label,
+        template_key.login,
+        default_password,
+        template_key.path,
+    );
+    const stored_key = (try keychain.findKey(keyID)).?;
+    try std.testing.expect(
+        std.mem.containsAtLeast(
+            u8,
+            stored_key.credential.?.ciphertext,
+            0,
+            default_password,
+        ),
+    );
+}
+
+test "readPassword(): returns null if key isn't stored" {
+    var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
+        default_prng.random(),
+        default_main_password,
+        argon2_params.min,
+        default_max_unlock_attempt_count,
+    );
+    defer keychain.deinit();
+    makeAlwaysActive(&keychain);
+    const absent_key = initSampleKey();
+    defer absent_key.deinit(std.testing.allocator);
+    try std.testing.expectEqual(
+        null,
+        try keychain.readPassword(std.testing.io, absent_key),
+    );
+}
+
+test "readPassword(): reads password of stored key" {
+    var keychain = try init(
+        std.testing.allocator,
+        std.testing.io,
+        default_prng.random(),
+        default_main_password,
+        argon2_params.min,
+        default_max_unlock_attempt_count,
+    );
+    defer keychain.deinit();
+    makeAlwaysActive(&keychain);
+    const template_key = initSampleKey();
+    defer template_key.deinit(std.testing.allocator);
+    const keyID = try keychain.storeKey(
+        std.testing.io,
+        template_key.label,
+        template_key.login,
+        default_password,
+        template_key.path,
+    );
+    const stored_key = (try keychain.findKey(keyID)).?;
+    const read_password =
+        (try keychain.readPassword(std.testing.io, stored_key)).?;
+    defer std.testing.allocator.free(read_password);
+    try std.testing.expectEqualSlices(u8, default_password, read_password);
+}
+
+fn initSampleKey() Key {
     const label = "Key6";
     const login = "john@appleseed.com";
-    const iv = [_]u8{0} ** 12;
-    const encrypted_password = "4ppl3s33d";
     const path: ?std.Uri = null;
     return Key.init(
+        std.testing.allocator,
         std.testing.io,
+        &default_csprng,
         label,
         login,
-        iv,
-        encrypted_password,
+        default_password,
         path,
     ) catch unreachable;
+}
+
+fn makeAlwaysActive(keychain: *Self) void {
+    keychain.inactivity_threshold_in_secs =
+        std.math.maxInt(@TypeOf(keychain.inactivity_threshold_in_secs));
 }
