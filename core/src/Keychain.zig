@@ -205,10 +205,9 @@ pub const Key = struct {
     fn validate(self: Key) @This().Error!void {
         try validateID(self.id);
         try validateLabel(self.label);
-        if (self.credential) |credential| {
-            _ = try validateSufficiency(self.login, credential.ciphertext);
-        } else if (strings.isBlank(self.login))
-            return @This().Error.Insufficient;
+        const credential_ciphertext =
+            if (self.credential) |credential| credential.ciphertext else "";
+        _ = try validateSufficiency(self.login, credential_ciphertext);
     }
 
     fn deinit(self: Key, allocator: std.mem.Allocator) void {
@@ -289,7 +288,7 @@ pub const MainPassword = struct {
         params: argon2.Params,
     ) pwhash.Error![]const u8 {
         var out: [128]u8 = undefined;
-        const options = pwhash.argon2.HashOptions{
+        const options = argon2.HashOptions{
             .allocator = allocator,
             .params = params,
         };
@@ -333,7 +332,7 @@ pub fn init(
     io: std.Io,
     rng: std.Random,
     main_password: []const u8,
-    main_password_hasher_params: pwhash.argon2.Params,
+    main_password_hasher_params: argon2.Params,
     max_unlock_attempt_count: usize,
 ) !Self {
     var csprng_seed: [std.Random.DefaultCsprng.secret_seed_length]u8 =
@@ -493,7 +492,7 @@ test "Key.init(): generated ID is always valid" {
     for (0..255) |_| {
         const key = initSampleKey();
         defer key.deinit(std.testing.allocator);
-        try key.validate();
+        try Key.validateID(key.id);
     }
 }
 
