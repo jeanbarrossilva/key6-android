@@ -113,7 +113,7 @@
 ///   for Password-Based Key Derivation; Part 1: Storage Applications*; and
 /// - 1Password. (2026, March 5). *1Password Security Design White Paper*.
 ///   https://agilebits.github.io/security-design.
-pub const Keychain = @import("Keychain.zig");
+pub const Keychain = @import("keychain/Keychain.zig");
 
 const std = @import("std");
 

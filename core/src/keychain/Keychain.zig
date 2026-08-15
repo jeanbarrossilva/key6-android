@@ -304,7 +304,7 @@ const crypto = std.crypto;
 const pwhash = crypto.pwhash;
 const Self = @This();
 const std = @import("std");
-const strings = @import("strings.zig");
+const strings = @import("utils/strings.zig");
 const zuid = @import("zuid");
 
 const max_main_password_consecution_len = 4;
@@ -463,8 +463,8 @@ fn nowInSecs(io: std.Io) u128 {
     return @intCast(std.Io.Clock.real.now(io).toSeconds());
 }
 
-const argon2_params = @import("argon2_params.zig");
-const permutator = @import("permutator.zig");
+const argon2_params = @import("utils/argon2_params.zig");
+const permutator = @import("utils/permutator.zig");
 
 var default_csprng = std.Random.DefaultCsprng.init(
     [_]u8{0} ** std.Random.DefaultCsprng.secret_seed_length,
