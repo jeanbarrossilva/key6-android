@@ -490,7 +490,7 @@ pub const Keychain = struct {
         login: []const u8,
         plain_password: []const u8,
         path: ?std.Uri,
-    ) !u128 {
+    ) !Key {
         const key = try Key.init(
             self.allocator,
             io,
@@ -501,7 +501,7 @@ pub const Keychain = struct {
             path,
         );
         try self.keys.put(key.id, key);
-        return key.id;
+        return key;
     }
 
     /// Reads non-sensitive information about a key with the given ID that's
@@ -544,7 +544,7 @@ pub const Keychain = struct {
         const now_in_secs = nowInSecs(io);
         const mp = main_password orelse
             return if (!self.isLocked(now_in_secs)) {} else Error.Locked;
-        pwhash.argon2.strVerify(
+        argon2.strVerify(
             self.main_password_hash,
             mp,
             self.main_password_verify_options,
@@ -799,14 +799,13 @@ test "storeKey(): key's password isn't stored in plaintext" {
     defer keychain.deinit();
     const template_key = initSampleKey();
     defer template_key.deinit(std.testing.allocator);
-    const keyID = try keychain.storeKey(
+    const stored_key = try keychain.storeKey(
         std.testing.io,
         template_key.label,
         template_key.login,
         default_key_password,
         template_key.path,
     );
-    const stored_key = (try keychain.findKey(keyID)).?;
     try std.testing.expect(
         std.mem.containsAtLeast(
             u8,
@@ -849,14 +848,13 @@ test "readPassword(): reads password of stored key" {
     disableAutoLock(&keychain);
     const template_key = initSampleKey();
     defer template_key.deinit(std.testing.allocator);
-    const key_id = try keychain.storeKey(
+    const stored_key = try keychain.storeKey(
         std.testing.io,
         template_key.label,
         template_key.login,
         default_key_password,
         template_key.path,
     );
-    const stored_key = (try keychain.findKey(key_id)).?;
     const read_password =
         (try keychain.readPassword(std.testing.io, stored_key)).?;
     defer std.testing.allocator.free(read_password);
