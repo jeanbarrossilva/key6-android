@@ -147,8 +147,6 @@ export fn keychain_read_password(
 }
 
 export fn keychain_free(keychain: *anyopaque) void {
-    var io = std.Io.Threaded.init(allocator, .{});
-    defer io.deinit();
     var typed_keychain: *Keychain = @ptrCast(@alignCast(keychain));
     typed_keychain.deinit();
 }
