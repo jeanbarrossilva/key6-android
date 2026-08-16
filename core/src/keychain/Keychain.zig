@@ -121,9 +121,9 @@
 ///
 /// ## References
 ///
-/// - Schlawack, H. (2015). *Choosing Parameters*. argon2-cffi 25.1.0
+/// - Schlawack, H. (2015). *Choosing Parameters*. std.crypto.pwhash.argon2-cffi 25.1.0
 ///   documentation.
-///   https://argon2-cffi.readthedocs.io/en/stable/parameters.html;
+///   https://std.crypto.pwhash.argon2-cffi.readthedocs.io/en/stable/parameters.html;
 /// - A. Biryukov, D. Dinu & D. Khovratovich. (2016). *Argon2: New Generation of
 ///   Memory-Hard Functions for Password Hashing and Other Applications*. 2016
 ///   IEEE European Symposium on Security and Privacy (EuroS&P), Saarbruecken,
@@ -145,12 +145,12 @@ pub const Keychain = struct {
     inactivity_threshold_in_secs: u128,
 
     allocator: std.mem.Allocator,
-    csprng: Csprng,
+    csprng: std.Random.DefaultCsprng,
     main_password_hash: []const u8,
-    main_password_verify_options: argon2.VerifyOptions,
+    main_password_verify_options: std.crypto.pwhash.argon2.VerifyOptions,
     current_unlock_attempt_count: usize,
     last_activity_timestamp_in_secs: u128,
-    keys: std.AutoHashMap(u128, Key),
+    store: std.AutoHashMap(u128, Key),
 
     /// Failure resulted from attempting to perform an operation related
     /// strictly to a keychain.
@@ -192,29 +192,33 @@ pub const Keychain = struct {
         pub const Credential = struct {
             /// 256-bit sequence generated randomly by a CSPRNG, used to encrypt
             /// the password.
-            key: [Aes256Gcm.key_length]u8,
+            key: [key_len]u8,
 
             /// Random bytes for producing different ciphertexts when encrypting
             /// two equal paswords. This is an input for encryption and,
             /// afterward, decryption.
-            iv: [Aes256Gcm.nonce_length]u8,
+            iv: [iv_len]u8,
 
             /// Bytes generated after encryption of the password, with which the
             /// encrypted password can be decrypted and ensured that no external
             /// attacker tampered with it.
-            authentication_tag: [Aes256Gcm.tag_length]u8,
+            authentication_tag: [authentication_tag_len]u8,
 
             /// Encrypted contents of this credential.
             ciphertext: []const u8,
 
             const associated_data = "";
+            const key_len = std.crypto.aead.aes_gcm.Aes256Gcm.key_length;
+            const iv_len = std.crypto.aead.aes_gcm.Aes256Gcm.nonce_length;
+            const authentication_tag_len =
+                std.crypto.aead.aes_gcm.Aes256Gcm.tag_length;
 
             fn decrypt(
                 self: Credential,
                 allocator: std.mem.Allocator,
             ) ![]const u8 {
                 const password = try allocator.alloc(u8, self.ciphertext.len);
-                try Aes256Gcm.decrypt(
+                try std.crypto.aead.aes_gcm.Aes256Gcm.decrypt(
                     password,
                     self.ciphertext,
                     self.authentication_tag,
@@ -231,15 +235,15 @@ pub const Keychain = struct {
 
             fn encrypt(
                 allocator: std.mem.Allocator,
-                csprng: *Csprng,
+                csprng: *std.Random.DefaultCsprng,
                 password: []const u8,
-                iv: [Aes256Gcm.nonce_length]u8,
+                iv: [iv_len]u8,
             ) error{OutOfMemory}!Credential {
-                var key: [Aes256Gcm.key_length]u8 = undefined;
+                var key: [key_len]u8 = undefined;
                 csprng.fill(&key);
                 const ciphertext = try allocator.alloc(u8, password.len);
-                var authentication_tag: [Aes256Gcm.tag_length]u8 = undefined;
-                Aes256Gcm.encrypt(
+                var authentication_tag: [authentication_tag_len]u8 = undefined;
+                std.crypto.aead.aes_gcm.Aes256Gcm.encrypt(
                     ciphertext,
                     &authentication_tag,
                     password,
@@ -295,10 +299,12 @@ pub const Keychain = struct {
             contains_login_and_credential,
         };
 
-        fn init(
+        const zuid = @import("zuid");
+
+        pub fn _init(
             allocator: std.mem.Allocator,
             io: std.Io,
-            csprng: *Csprng,
+            csprng: *std.Random.DefaultCsprng,
             label: []const u8,
             login: []const u8,
             password: []const u8,
@@ -307,7 +313,7 @@ pub const Keychain = struct {
             try validateLabel(label);
             const sufficiency = validateSufficiency(login, password) catch |err|
                 return err;
-            var iv: [Aes256Gcm.nonce_length]u8 = undefined;
+            var iv: [Credential.iv_len]u8 = undefined;
             csprng.fill(&iv);
             return .{
                 .id = @bitCast(zuid.new.v7(io)),
@@ -323,8 +329,8 @@ pub const Keychain = struct {
                 .path = path,
             };
         }
-
-        fn validate(self: Key) @This().Error!void {
+        
+        pub fn _validate(self: Key) @This().Error!void {
             try validateID(self.id);
             try validateLabel(self.label);
             const credential_ciphertext =
@@ -332,7 +338,7 @@ pub const Keychain = struct {
             _ = try validateSufficiency(self.login, credential_ciphertext);
         }
 
-        fn deinit(self: Key, allocator: std.mem.Allocator) void {
+        pub fn _deinit(self: Key, allocator: std.mem.Allocator) void {
             const credential = self.credential orelse return;
             credential.deinit(allocator);
         }
@@ -407,21 +413,30 @@ pub const Keychain = struct {
             allocator: std.mem.Allocator,
             io: std.Io,
             main_password: []const u8,
-            params: argon2.Params,
-        ) pwhash.Error![]const u8 {
+            params: std.crypto.pwhash.argon2.Params,
+        ) std.crypto.pwhash.Error![]const u8 {
             var out: [128]u8 = undefined;
-            const options = argon2.HashOptions{
+            const options = std.crypto.pwhash.argon2.HashOptions{
                 .allocator = allocator,
                 .params = params,
             };
-            return argon2.strHash(main_password, options, &out, io);
+            return std.crypto.pwhash.argon2.strHash(
+                main_password,
+                options,
+                &out,
+                io,
+            );
         }
     };
+ 
+    pub const c = @import("keychain.c.zig");
+    pub const tests = @import("keychain.tests.zig");
 
-    const Aes256Gcm = crypto.aead.aes_gcm.Aes256Gcm;
-    const Self = @This();
+    /// Maximum amount of consecutive characters in the main password of a
+    /// keychain.
+    pub const max_main_password_consecution_len = 4;
 
-    const max_main_password_consecution_len = 4;
+    const strings = @import("utils/strings.zig");
 
     /// Initializes a keychain with the given main password given in plaintext.
     /// A hash of such password is calculated through Argon2, and used to
@@ -446,10 +461,10 @@ pub const Keychain = struct {
     pub fn init(
         allocator: std.mem.Allocator,
         io: std.Io,
-        rng: Rng,
+        rng: std.Random,
         main_password: []const u8,
-        main_password_hasher_params: argon2.Params,
-    ) !Self {
+        main_password_hasher_params: std.crypto.pwhash.argon2.Params,
+    ) !Keychain {
         var csprng_seed: [std.Random.DefaultCsprng.secret_seed_length]u8 =
             undefined;
         rng.bytes(&csprng_seed);
@@ -468,7 +483,7 @@ pub const Keychain = struct {
             .main_password_verify_options = .{ .allocator = allocator },
             .current_unlock_attempt_count = 0,
             .last_activity_timestamp_in_secs = 0,
-            .keys = .init(allocator),
+            .store = .init(allocator),
         };
     }
 
@@ -478,14 +493,14 @@ pub const Keychain = struct {
     /// unlocked, and may prompt the user to provide this keychain's main
     /// password.
     pub fn storeKey(
-        self: *Self,
+        self: *Keychain,
         io: std.Io,
         label: []const u8,
         login: []const u8,
         plain_password: []const u8,
         path: ?std.Uri,
     ) !Key {
-        const key = try Key.init(
+        const key = try Key._init(
             self.allocator,
             io,
             &self.csprng,
@@ -494,7 +509,7 @@ pub const Keychain = struct {
             plain_password,
             path,
         );
-        try self.keys.put(key.id, key);
+        try self.store.put(key.id, key);
         return key;
     }
 
@@ -505,18 +520,18 @@ pub const Keychain = struct {
     ///
     /// This function will error in case the ID is malformed, or return null if
     /// it isn't that of a key stored in this keychain.
-    pub fn findKey(self: Self, id: u128) Key.Error!?Key {
+    pub fn findKey(self: Keychain, id: u128) Key.Error!?Key {
         try Key.validateID(id);
-        return self.keys.get(id);
+        return self.store.get(id);
     }
 
     /// Decrypts the credential of the given key. This function requires both
     /// that this keychain be unlocked and such key belong to this keychain;
     /// otherwise, an error or null is returned, respectively.
-    pub fn readPassword(self: Self, io: std.Io, key: Key) !?[]const u8 {
+    pub fn readPassword(self: Keychain, io: std.Io, key: Key) !?[]const u8 {
         if (self.isLocked(nowInSecs(io)))
             return Error.Locked;
-        if (!self.keys.contains(key.id))
+        if (!self.store.contains(key.id))
             return null;
         if (key.credential) |credential|
             return try credential.decrypt(self.allocator);
@@ -531,21 +546,21 @@ pub const Keychain = struct {
     /// This function is a no-op in case this keychain is already unlocked _and_
     /// no main password (i.e., a null one) is passed in.
     pub fn unlock(
-        self: *Self,
+        self: *Keychain,
         io: std.Io,
         main_password: ?[]const u8,
     ) Error!void {
         const now_in_secs = nowInSecs(io);
         const mp = main_password orelse
             return if (!self.isLocked(now_in_secs)) {} else Error.Locked;
-        argon2.strVerify(
+        std.crypto.pwhash.argon2.strVerify(
             self.main_password_hash,
             mp,
             self.main_password_verify_options,
             io,
         ) catch |err| switch (err) {
-            crypto.errors.Error.InvalidEncoding,
-            crypto.errors.Error.PasswordVerificationFailed,
+            std.crypto.errors.Error.InvalidEncoding,
+            std.crypto.errors.Error.PasswordVerificationFailed,
             => {
                 if (self.current_unlock_attempt_count ==
                     self.max_unlock_attempt_count)
@@ -563,14 +578,14 @@ pub const Keychain = struct {
     }
 
     /// Frees memory allocated by this keychain.
-    pub fn deinit(self: *Self) void {
-        var key_iter = self.keys.valueIterator();
+    pub fn deinit(self: *Keychain) void {
+        var key_iter = self.store.valueIterator();
         while (key_iter.next()) |key|
-            key.deinit(self.allocator);
-        self.keys.deinit();
+            key._deinit(self.allocator);
+        self.store.deinit();
     }
 
-    fn isLocked(self: Self, now_in_secs: u128) bool {
+    fn isLocked(self: Keychain, now_in_secs: u128) bool {
         return now_in_secs -
             self.last_activity_timestamp_in_secs >
             self.inactivity_threshold_in_secs;
@@ -581,431 +596,8 @@ pub const Keychain = struct {
     }
 };
 
-const argon2 = pwhash.argon2;
-const crypto = std.crypto;
-const Csprng = Rng.DefaultCsprng;
-const Prng = Rng.DefaultPrng;
-const pwhash = crypto.pwhash;
-const Rng = std.Random;
 const std = @import("std");
-const strings = @import("utils/strings.zig");
-const zuid = @import("zuid");
 
-// C-ABI compatibility
-// -----------------------------------------------------------------------------
-
-/// Result of an attempt to allocate memory for a keychain with
-/// `keychain_alloc()`.
-pub const InitResult = extern union {
-    success: *anyopaque,
-    failure: enum(c_int) {
-        invalid_main_password,
-        main_password_hashing_error,
-        out_of_memory,
-    },
-};
-
-/// Result of an attempt to store a key in a keychain with
-/// `keychain_store_key()`.
-pub const StoreKeyResult = extern union {
-    success: *anyopaque,
-    failure: enum(c_int) {
-        invalid_key,
-        invalid_path,
-        out_of_memory,
-    },
-};
-
-/// Result of an attempt to read the password of a key storing in a keychain
-/// with `keychain_read_password()`.
-pub const ReadPasswordResult = extern union {
-    success: ?[*:0]u8,
-    failure: enum(c_int) {
-        decryption_error,
-        keychain_error,
-        out_of_memory,
-    },
-};
-
-/// Size of a `Keychain` struct in bytes.
-pub const keychain_size = @sizeOf(Keychain);
-
-/// Allocator by which allocations to and deallocations from the heap are
-/// delegated to C's stdlib's `malloc()` and `free()`.
-const c_allocator = std.heap.c_allocator;
-
-export fn keychain_init(
-    seed: u64,
-    main_password: [*:0]const u8,
-    main_password_hasher_memory: u32,
-    main_password_hasher_parallelism: u32,
-    main_password_hasher_time: u32,
-) InitResult {
-    var io = std.Io.Threaded.init(c_allocator, .{});
-    defer io.deinit();
-    var rng = Prng.init(seed);
-    const main_password_hasher_params = argon2.Params{
-        .t = main_password_hasher_time,
-        .m = main_password_hasher_memory,
-        .p = @intCast(main_password_hasher_parallelism),
-    };
-    const keychain = c_allocator.create(Keychain) catch
-        return .{ .failure = .out_of_memory };
-    keychain.* = Keychain.init(
-        c_allocator,
-        io.io(),
-        rng.random(),
-        std.mem.span(main_password),
-        main_password_hasher_params,
-    ) catch |err| return switch (@TypeOf(err)) {
-        Keychain.MainPassword.Error => .{ .failure = .invalid_main_password },
-        pwhash.Error => .{ .failure = .main_password_hashing_error },
-        else => unreachable,
-    };
-    return .{ .success = keychain };
-}
-
-export fn keychain_store_key(
-    keychain: *anyopaque,
-    label: [*:0]const u8,
-    login: [*:0]const u8,
-    password: [*:0]const u8,
-    path: ?[*:0]const u8,
-) StoreKeyResult {
-    var io = std.Io.Threaded.init(c_allocator, .{});
-    defer io.deinit();
-    const typed_keychain: *Keychain = @ptrCast(@alignCast(keychain));
-    const typed_path =
-        if (path) |p|
-            std.Uri.parse(std.mem.span(p)) catch return .{
-                .failure = .invalid_path,
-            }
-        else
-            null;
-    const key = c_allocator.create(Keychain.Key) catch
-        return .{ .failure = .out_of_memory };
-    key.* = typed_keychain.storeKey(
-        io.io(),
-        std.mem.span(label),
-        std.mem.span(login),
-        std.mem.span(password),
-        typed_path,
-    ) catch |err| return switch (@TypeOf(err)) {
-        Keychain.Key.Error => .{ .failure = .invalid_key },
-        std.mem.Allocator.Error => .{ .failure = .out_of_memory },
-        else => unreachable,
-    };
-    return .{ .success = key };
-}
-
-export fn keychain_read_password(
-    keychain: *anyopaque,
-    key: *anyopaque
-) ReadPasswordResult {
-    var io = std.Io.Threaded.init(c_allocator, .{});
-    defer io.deinit();
-    const typed_keychain: *Keychain = @ptrCast(@alignCast(keychain));
-    const typed_key: *Keychain.Key = @ptrCast(@alignCast(key));
-    const typed_password =
-        if (typed_keychain.*.readPassword(io.io(), typed_key.*)) |password|
-            password orelse return .{ .success = null }
-        else |err|
-            return switch (@TypeOf(err)) {
-                crypto.errors.AuthenticationError => .decryption_error,
-                Keychain.Error => .keychain_error,
-                std.mem.Allocator.Error => .out_of_memory,
-                else => unreachable,
-            };
-    const untyped_password =
-        c_allocator.dupeZ(u8, typed_password) catch return .{
-            .failure = .out_of_memory,
-        };
-    return .{ .success = untyped_password.ptr };
-}
-
-export fn keychain_free(keychain: *anyopaque) void {
-    var io = std.Io.Threaded.init(c_allocator, .{});
-    defer io.deinit();
-    var typed_keychain: *Keychain = @alignCast(@ptrCast(keychain));
-    typed_keychain.deinit();
-}
-
-// Tests
-// -----------------------------------------------------------------------------
-
-const argon2_params = @import("utils/argon2_params.zig");
-const permutator = @import("utils/permutator.zig");
-
-var default_csprng = Csprng.init([_]u8{0} ** Csprng.secret_seed_length);
-var default_prng = Prng.init(0);
-const default_main_password = "appleseed";
-const default_key_password = "password123";
-
-test "Key.validate(): errors if ID isn't a UUID v7" {
-    var key = initSampleKey();
-    defer key.deinit(std.testing.allocator);
-    const ids = [_]u128{
-        0,
-        @bitCast(zuid.new.v1(std.testing.io)),
-        @bitCast(zuid.new.v4(std.testing.io)),
-        @bitCast(zuid.new.v6(std.testing.io)),
-    };
-    inline for (ids) |id| {
-        key.id = id;
-        try std.testing.expectError(
-            Keychain.Key.Error.MalformedID,
-            key.validate(),
-        );
-    }
-}
-
-test "Key.init(): generated ID is always valid" {
-    for (0..255) |_| {
-        const key = initSampleKey();
-        defer key.deinit(std.testing.allocator);
-        try Keychain.Key.validateID(key.id);
-    }
-}
-
-test "Key.init(): errors if both credentials are blank" {
-    var key = initSampleKey();
-    defer key.deinit(std.testing.allocator);
-    var backing_credentials = [_][]const u8{ "", " ", "  " };
-    var credentials: [][]const u8 = backing_credentials[0..];
-    var credential_iter = permutator.Iterator([]const u8, 2).init(&credentials);
-    while (credential_iter.next()) |permutation| {
-        const password = permutation[1];
-        key.login = permutation[0];
-        try std.testing.expectError(
-            Keychain.Key.Error.Insufficient,
-            Keychain.Key.init(
-                std.testing.allocator,
-                std.testing.io,
-                &default_csprng,
-                key.label,
-                key.login,
-                password,
-                key.path,
-            ),
-        );
-    }
-}
-
-test "init(): errors on blank main password" {
-    inline for (&.{ "", " ", "  " }) |main_password|
-        try std.testing.expectError(
-            Keychain.MainPassword.Error.Blank,
-            Keychain.init(
-                std.testing.allocator,
-                std.testing.io,
-                default_prng.random(),
-                main_password,
-                argon2_params.min,
-            ),
-        );
-}
-
-test "init(): errors on main password with 5+ character consecutions" {
-    inline for (&.{
-        try strings.repeat(
-            "a",
-            std.testing.allocator,
-            Keychain.max_main_password_consecution_len + 1,
-        ),
-        try strings.repeat(
-            "b",
-            std.testing.allocator,
-            Keychain.max_main_password_consecution_len * 2,
-        ),
-    }) |main_password| {
-        try std.testing.expectError(
-            Keychain.MainPassword.Error.TooManyConsecutions,
-            Keychain.init(
-                std.testing.allocator,
-                std.testing.io,
-                default_prng.random(),
-                main_password,
-                argon2_params.min,
-            ),
-        );
-        std.testing.allocator.free(main_password);
-    }
-}
-
-test "init(): main password isn't in hash" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    try std.testing.expectEqual(
-        null,
-        std.mem.indexOf(u8, keychain.main_password_hash, default_main_password),
-    );
-}
-
-test "init(): main password isn't discarded" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    try std.testing.expectEqual("appleseed", default_main_password);
-}
-
-test "unlock(): errors on exceeding unsuccessful attempts" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        "appleseed",
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    while (keychain.current_unlock_attempt_count <
-        keychain.max_unlock_attempt_count)
-        try keychain.unlock(std.testing.io, "");
-    try std.testing.expectError(
-        Keychain.Error.TooManyUnlockAttempts,
-        keychain.unlock(std.testing.io, ""),
-    );
-}
-
-test "unlock(): unlocks if given the correct main password" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    try keychain.unlock(std.testing.io, default_main_password);
-}
-
-test "unlock(): doesn't require main password within inactivity threshold" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    disableAutoLock(&keychain);
-    try keychain.unlock(std.testing.io, default_main_password);
-    try keychain.unlock(std.testing.io, null);
-}
-
-test "unlock(): requires main password after inactivity threshold" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    try keychain.unlock(std.testing.io, default_main_password);
-    try std.testing.expectError(
-        Keychain.Error.Locked,
-        keychain.unlock(std.testing.io, null),
-    );
-}
-
-test "storeKey(): key's password isn't stored in plaintext" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    const template_key = initSampleKey();
-    defer template_key.deinit(std.testing.allocator);
-    const stored_key = try keychain.storeKey(
-        std.testing.io,
-        template_key.label,
-        template_key.login,
-        default_key_password,
-        template_key.path,
-    );
-    try std.testing.expect(
-        std.mem.containsAtLeast(
-            u8,
-            stored_key.credential.?.ciphertext,
-            0,
-            default_key_password,
-        ),
-    );
-}
-
-test "readPassword(): returns null if key isn't stored" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    disableAutoLock(&keychain);
-    const absent_key = initSampleKey();
-    defer absent_key.deinit(std.testing.allocator);
-    try std.testing.expectEqual(
-        null,
-        try keychain.readPassword(std.testing.io, absent_key),
-    );
-}
-
-test "readPassword(): reads password of stored key" {
-    var keychain = try Keychain.init(
-        std.testing.allocator,
-        std.testing.io,
-        default_prng.random(),
-        default_main_password,
-        argon2_params.min,
-    );
-    defer keychain.deinit();
-    disableAutoLock(&keychain);
-    const template_key = initSampleKey();
-    defer template_key.deinit(std.testing.allocator);
-    const stored_key = try keychain.storeKey(
-        std.testing.io,
-        template_key.label,
-        template_key.login,
-        default_key_password,
-        template_key.path,
-    );
-    const read_password =
-        (try keychain.readPassword(std.testing.io, stored_key)).?;
-    defer std.testing.allocator.free(read_password);
-    try std.testing.expectEqualSlices(u8, default_key_password, read_password);
-}
-
-fn initSampleKey() Keychain.Key {
-    const label = "Key6";
-    const login = "john@appleseed.com";
-    const path: ?std.Uri = null;
-    return Keychain.Key.init(
-        std.testing.allocator,
-        std.testing.io,
-        &default_csprng,
-        label,
-        login,
-        default_key_password,
-        path,
-    ) catch unreachable;
-}
-
-fn disableAutoLock(keychain: *Keychain) void {
-    keychain.inactivity_threshold_in_secs =
-        std.math.maxInt(@TypeOf(keychain.inactivity_threshold_in_secs));
+test {
+    std.testing.refAllDecls(Keychain);
 }
