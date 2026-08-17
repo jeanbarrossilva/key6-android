@@ -1,4 +1,4 @@
-pub const Keychain = @import("keychain/keychain.zig").Keychain;
+pub const Keychain = @import("keychain/Keychain.zig");
 
 pub const std = @import("std");
 
