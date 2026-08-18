@@ -614,7 +614,8 @@ test "Key.init(): errors if both credentials are blank" {
     defer key.deinit(std.testing.allocator);
     var backing_credentials = [_][]const u8{ "", " ", "  " };
     var credentials: [][]const u8 = backing_credentials[0..];
-    var credential_iter = permutator.Iterator([]const u8, 2).init(&credentials);
+    var credential_iter =
+        permutator.Iterator([]const u8, 2).init(&credentials);
     while (credential_iter.next()) |permutation| {
         const password = permutation[1];
         key.login = permutation[0];

@@ -14,45 +14,54 @@
 // You should have received a copy of the GNU General Public License along with
 // this program. If not, see https://www.gnu.org/licenses.
 
-// this is kinda different than what most of the permutation packages that I've
-// found do: rather than just providing all possible permutations of a set A, my
-// wish is to do so *while* specifying the length n of each permutation.
-
 const std = @import("std");
 
-/// Iterator over every *n*-sized permutation of a slice.
-pub fn Iterator(comptime Element: type, permutation_len: usize) type {
+/// Iterator over every *k*-sized ordered subset of an *n*-sized slice, where
+/// *k* ≤ *n*.
+pub fn Iterator(comptime Element: type, k: usize) type {
     return struct {
-        elements: *[]Element,
-        relative_swap_index: usize,
-        window_index: usize,
-        target: Target,
-        current_window_swap_count: usize,
-        max_swap_per_window_count: usize,
+        /// Pointer to the slice over whose permutations this iterator may
+        /// iterate.
+        s_ptr: *[]Element,
+
+        /// Index of the element to be swapped with the element adjacent to it,
+        /// relative to the window; thus, rather than an index of `s_ptr.*`,
+        /// this is an index of the subset `s_ptr.*[window..k]`.
+        rel_swap: usize,
+
+        /// Index of the current window in the slice `s_ptr.*`. In this context,
+        /// a window is a subset of length `k` of such slice, the first window
+        /// is at `s_ptr.*[0]`, with subsequent ones being at
+        /// `s_ptr.*[(i + 1) * n]`, where *i* is the amount of times `next()`
+        /// has been called before.
+        window: usize,
+
+        /// Amount of swaps in the current window `s_ptr.*[window..k]` since the
+        /// last iteration.
+        ///
+        /// The maximum value of this field is denoted by `max_swaps`, which is
+        /// `k`! after the first call to `next()`. Once this maximum has been
+        /// reached, a posterior iteration will cause this field to be zeroed,
+        /// as that implies that we've moved to the next window.
+        swap: usize,
+
+        /// Maximum amount of swaps that can occur in the window
+        /// `s_ptr.*[window..k]`. As an optimization, given that this equals to
+        /// `k`! conceptually, this field is first set to zero, with `k`! being
+        /// computed and assigned to it once, upon the first iteration.
+        max_swaps: usize,
 
         const Self = @This();
-        const Target = enum(u1) {
-            left,
-            right,
 
-            fn next(self: Target) Target {
-                return switch (self) {
-                    .left => .right,
-                    .right => .left,
-                };
-            }
-        };
-
-        /// Initializes an iterator for computing the *n*-sized permutations
+        /// Initializes an iterator for computing the *k*-sized ordered subsets
         /// of the given slice.
-        pub fn init(elements: *[]Element) Self {
+        pub fn init(s_ptr: *[]Element) Self {
             return .{
-                .elements = elements,
-                .relative_swap_index = elements.len / 2,
-                .window_index = 0,
-                .target = .right,
-                .current_window_swap_count = 0,
-                .max_swap_per_window_count = 0,
+                .s_ptr = s_ptr,
+                .rel_swap = s_ptr.len / 2,
+                .window = 0,
+                .swap = 0,
+                .max_swaps = 0,
             };
         }
 
@@ -62,58 +71,36 @@ pub fn Iterator(comptime Element: type, permutation_len: usize) type {
         /// differ from one another.
         ///
         /// In case there aren't any permutations left, null is returned.
-        pub fn next(self: *Self) ?[permutation_len]Element {
-            // 'max_swap_per_window_count' = 0 denotes that we are consuming the
-            // permutations for the first time. because factorials may be
-            // expensive to compute, we do so lazily (and only once).
-            //
-            // this is not so smart, as the integer may overflow pretty fast
-            // (apart from its max depending on the word size, too). rather,
-            // 'max_swap_per_window_count' could also be lazy, checked and
-            // increased up to its upper bound as needed.
-            //
-            // anyways, something to think of if the use cases for permutations
-            // advances more in Key6. works for now.
-            if (self.max_swap_per_window_count == 0 and self.elements.len > 0)
-                self.max_swap_per_window_count = factorial(self.elements.len);
-
-            const abs_swap_index =
-                @min(
-                    self.window_index + self.relative_swap_index,
-                    self.elements.len -| 1,
-                );
+        pub fn next(self: *Self) ?[k]Element {
+            const n = self.s_ptr.len;
+            if (self.max_swaps == 0 and n > 0) {
+                // this is not so smart: the integer may overflow pretty fast
+                // (apart from its max depending on the word size, too). rather,
+                // 'max_swaps' could also be lazy, checked and increased toward
+                // its upper bound as needed.
+                self.max_swaps = factorial(n);
+            }
             if (!self.hasNext())
                 return null;
-            const elements = self.elements.*;
-            const current_element = elements[abs_swap_index];
-            const abs_adjacent_swap_index = switch (self.target) {
-                .left => abs_swap_index + 1,
-                .right => abs_swap_index - 1,
-            };
-            self.elements.*[abs_swap_index] = elements[abs_adjacent_swap_index];
-            self.elements.*[abs_adjacent_swap_index] = current_element;
-            const permutation =
-                @as(
-                    *[permutation_len]Element,
-                    @ptrCast(
-                        elements[abs_swap_index -| permutation_len..abs_swap_index].ptr,
-                    ),
-                ).*;
-            self.current_window_swap_count += 1;
-            self.target = self.target.next();
-            self.relative_swap_index =
-                switch (self.target) {
-                    .left => self.relative_swap_index / 2 + 1,
-                    .right => (self.elements.len - self.relative_swap_index) / 2,
-                };
-            if (!self.hasNextInCurrentWindow()) {
-                if (self.hasNextWindow()) {
-                    self.window_index += 1;
-                } else {
-                    self.window_index = 0;
-                }
-            }
-            return permutation;
+            const abs_swap = @min(self.window + self.rel_swap, n -| 1);
+            const s = self.s_ptr.*;
+            const swapped = s[abs_swap];
+            const abs_adj_swap =
+                if (self.swap % 2 == 0) abs_swap -| 1 else abs_swap + 1;
+            self.s_ptr.*[abs_swap] = s[abs_adj_swap];
+            self.s_ptr.*[abs_adj_swap] = swapped;
+            const result =
+                @as(*[k]Element, @ptrCast(s[abs_swap -| k..abs_swap].ptr)).*;
+            self.swap += 1;
+            self.rel_swap =
+                if (abs_adj_swap % 2 != 0)
+                    self.rel_swap / 2
+                else
+                    (n - self.rel_swap) / 2;
+            if (!self.hasNextInCurrentWindow())
+                self.window =
+                    if (self.hasNextWindow()) self.window + 1 else 0;
+            return result;
         }
 
         fn hasNext(self: Self) bool {
@@ -121,14 +108,12 @@ pub fn Iterator(comptime Element: type, permutation_len: usize) type {
         }
 
         fn hasNextWindow(self: Self) bool {
-            return self.elements.len > 0 and
-                self.window_index + self.relative_swap_index + permutation_len <
-                    self.elements.len - 1;
+            return self.s_ptr.len > 0 and
+                self.window + self.rel_swap + k < self.s_ptr.len - 1;
         }
 
         fn hasNextInCurrentWindow(self: Self) bool {
-            return self.current_window_swap_count <
-                self.max_swap_per_window_count;
+            return self.swap < self.max_swaps;
         }
     };
 }
@@ -136,9 +121,6 @@ pub fn Iterator(comptime Element: type, permutation_len: usize) type {
 fn factorial(n: usize) usize {
     if (n == 0)
         return 1;
-
-    // this seems oddly inneficient…
-    // isn't there an instruction or a coprocessor for computing factorials? :p
     var result: usize = n;
     var m: usize = n - 1;
     while (m >= 1) : (m -= 1)
